@@ -1,0 +1,5 @@
+{
+  "name": "炼金术士的账本 - 海龟汤",
+  "description": "一款充满神秘氛围的海龟汤推理小程序，探索离奇真相。",
+  "requestFramePermissions": ["microphone"]
+}
