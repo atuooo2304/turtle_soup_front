@@ -1,30 +1,80 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
-  Home as HomeIcon, 
   User, 
-  History, 
-  PlusSquare, 
   Mic, 
   Send, 
   ArrowLeft, 
-  Settings, 
   HelpCircle, 
   Share2, 
   Home as HomeNavIcon,
   Search,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   TrendingUp,
   RefreshCw,
-  Clock,
-  LogOut,
   FileText,
-  Info,
   X,
   Keyboard
 } from 'lucide-react';
-import { puzzles, Puzzle } from './data/puzzles';
-import { askHost } from './lib/gemini';
+import {
+  riddles,
+  pickRandomRiddle,
+  formatDifficultyLabel,
+  riddleSummary,
+  type Riddle,
+} from './data/riddles';
+import { askHost, type CozeConversationState } from './lib/cozeHost';
+import { recordGameEnd, subscribeProgress, getProgress, type ProgressMap } from './lib/playerProgress';
+import { isSpeechToTextSupported, startSpeechToText, stopSpeechToText } from './lib/speechToText';
+
+function formatElapsed(ms: number): string {
+  const totalSec = Math.max(0, Math.floor(ms / 1000));
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+/**
+ * 判断主持人是否宣告本局通关。关键词须与 Coze 海龟汤 Bot 的通关话术一致（例如「解谜成功！」）；
+ * 若你在扣子侧修改通关文案，请同步更新此列表。长期可改为 BFF 返回结构化字段（如 story_end）。
+ */
+function hostIndicatesSuccess(hostText: string): boolean {
+  const t = hostText;
+  return (
+    t.includes('恭喜') ||
+    t.includes('真相') ||
+    t.includes('揭开') ||
+    t.includes('解谜成功') ||
+    t.includes('通关')
+  );
+}
+
+type FinishReason = 'win' | 'give_up' | 'out_of_turns';
+
+interface GameFinishPayload {
+  success: boolean;
+  count: number;
+  elapsedMs: number;
+  bottomText: string;
+  finishReason: FinishReason;
+  riddleId: string;
+}
+
+function failureGradeTitle(finishReason: 'give_up' | 'out_of_turns', count: number): string {
+  if (finishReason === 'give_up') return '遗憾离场';
+  if (count <= 7) return '差一口气';
+  if (count <= 14) return '迷雾重重';
+  return '铩羽而归';
+}
+
+function failureGradeSubtitle(finishReason: 'give_up' | 'out_of_turns', count: number): string {
+  if (finishReason === 'give_up') return '主动放弃本局';
+  if (count <= 7) return '次数用尽 · 已接近真相';
+  if (count <= 14) return '次数用尽 · 仍可深挖';
+  return '次数用尽';
+}
 
 // --- Types ---
 type View = 'home' | 'game' | 'profile' | 'rules' | 'history' | 'submit' | 'developing';
@@ -72,31 +122,54 @@ const Layout = ({ children, activeTab, onTabChange }: { children: React.ReactNod
   );
 };
 
-const PuzzleCard = ({ puzzle, onClick }: { puzzle: Puzzle, onClick: () => void }) => {
-  const isBlack = puzzle.difficulty === '黑汤';
-  const isRed = puzzle.difficulty === '红汤';
-  
+const RiddleCard = ({
+  riddle,
+  onClick,
+  played,
+  cleared,
+}: {
+  riddle: Riddle;
+  onClick: () => void;
+  played: boolean;
+  cleared: boolean;
+}) => {
+  const d = riddle.difficulty.toLowerCase();
+  const isHard = d === 'hard';
+  const isMedium = d === 'medium';
+
   return (
     <motion.div 
       whileTap={{ scale: 0.98 }}
       onClick={onClick}
-      className={`group flex flex-col gap-4 p-5 bg-surface-low transition-colors hover:bg-surface-high cursor-pointer ${puzzle.id === '2' ? 'asymmetric-offset-right' : ''}`}
+      className={`group flex flex-col gap-4 p-5 bg-surface-low transition-colors hover:bg-surface-high cursor-pointer ${riddle.id === '2' ? 'asymmetric-offset-right' : ''}`}
     >
       <div className="flex-1 space-y-3">
-        <h3 className={`font-serif text-2xl text-on-surface group-hover:text-primary transition-colors`}>
-          {puzzle.title}
-        </h3>
+        <div className="flex flex-wrap items-center gap-2">
+          <h3 className={`font-serif text-2xl text-on-surface group-hover:text-primary transition-colors`}>
+            {riddle.title}
+          </h3>
+          {cleared && (
+            <span className="text-[9px] px-2 py-0.5 tracking-widest bg-secondary/25 text-secondary border border-secondary/40">
+              已通关
+            </span>
+          )}
+          {!cleared && played && (
+            <span className="text-[9px] px-2 py-0.5 tracking-widest bg-on-surface-variant/15 text-on-surface-variant border border-outline-variant/40">
+              已玩
+            </span>
+          )}
+        </div>
         <p className="font-serif text-sm text-on-surface-variant leading-relaxed line-clamp-2">
-          {puzzle.description}
+          {riddleSummary(riddle.surface, 100)}
         </p>
       </div>
       <div className="flex justify-between items-end">
         <div className="flex gap-2">
-          <span className={`text-[10px] px-2 py-0.5 font-bold tracking-widest ${isBlack ? 'bg-on-surface-variant text-surface' : isRed ? 'bg-primary/20 text-primary' : 'bg-secondary/20 text-secondary'}`}>
-            {puzzle.difficulty}
+          <span className={`text-[10px] px-2 py-0.5 font-bold tracking-widest ${isHard ? 'bg-on-surface-variant text-surface' : isMedium ? 'bg-primary/20 text-primary' : 'bg-secondary/20 text-secondary'}`}>
+            {formatDifficultyLabel(riddle.difficulty)}
           </span>
           <span className="text-[10px] px-2 py-0.5 border border-outline-variant text-on-surface-variant">
-            {puzzle.type}
+            {riddle.type}
           </span>
         </div>
         <ChevronRight size={16} className="text-primary opacity-0 group-hover:opacity-100 transition-opacity" />
@@ -107,14 +180,30 @@ const PuzzleCard = ({ puzzle, onClick }: { puzzle: Puzzle, onClick: () => void }
 
 // --- Views ---
 
-const HomeView = ({ onSelectPuzzle }: { onSelectPuzzle: (p: Puzzle) => void }) => {
-  const [bannerPuzzle, setBannerPuzzle] = useState<Puzzle>(puzzles[0]);
+const HomeView = ({
+  onSelectRiddle,
+  progressMap,
+}: {
+  onSelectRiddle: (r: Riddle) => void;
+  progressMap: ProgressMap;
+}) => {
+  const [bannerRiddle, setBannerRiddle] = useState<Riddle>(() => pickRandomRiddle());
+  const [searchQuery, setSearchQuery] = useState('');
+  const bannerProg = progressMap[bannerRiddle.id];
+
+  const filteredRiddles = riddles.filter((r) => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      r.title.toLowerCase().includes(q) ||
+      r.surface.toLowerCase().includes(q) ||
+      r.type.toLowerCase().includes(q)
+    );
+  });
 
   const handleRandomSoup = (e: React.MouseEvent) => {
     e.stopPropagation();
-    const otherPuzzles = puzzles.filter(p => p.id !== bannerPuzzle.id);
-    const randomPuzzle = otherPuzzles[Math.floor(Math.random() * otherPuzzles.length)] || puzzles[0];
-    setBannerPuzzle(randomPuzzle);
+    setBannerRiddle(pickRandomRiddle(bannerRiddle.id));
   };
 
   return (
@@ -134,7 +223,7 @@ const HomeView = ({ onSelectPuzzle }: { onSelectPuzzle: (p: Puzzle) => void }) =
       </header>
 
       <section 
-        onClick={() => onSelectPuzzle(bannerPuzzle)}
+        onClick={() => onSelectRiddle(bannerRiddle)}
         className="relative group cursor-pointer bg-surface-lowest overflow-hidden"
       >
         <div className="absolute inset-0 opacity-40 grayscale transition-all duration-700">
@@ -157,9 +246,21 @@ const HomeView = ({ onSelectPuzzle }: { onSelectPuzzle: (p: Puzzle) => void }) =
               </motion.div>
             </button>
           </div>
-          <h2 className="font-serif text-3xl text-on-surface mb-2 asymmetric-offset">{bannerPuzzle.title}</h2>
+          <div className="flex flex-wrap items-center gap-2 mb-2">
+            <h2 className="font-serif text-3xl text-on-surface asymmetric-offset">{bannerRiddle.title}</h2>
+            {bannerProg?.cleared && (
+              <span className="text-[9px] px-2 py-0.5 tracking-widest bg-secondary/25 text-secondary border border-secondary/40">
+                已通关
+              </span>
+            )}
+            {!bannerProg?.cleared && bannerProg?.played && (
+              <span className="text-[9px] px-2 py-0.5 tracking-widest bg-on-surface-variant/20 text-on-surface-variant border border-outline-variant/40">
+                已玩
+              </span>
+            )}
+          </div>
           <p className="font-serif text-sm text-on-surface-variant leading-relaxed italic">
-            “{bannerPuzzle.surface.length > 60 ? bannerPuzzle.surface.substring(0, 60) + '...' : bannerPuzzle.surface}”
+            “{riddleSummary(bannerRiddle.surface, 60)}”
           </p>
           <div className="mt-6 flex items-center gap-2 text-primary text-xs tracking-widest font-bold">
             <span>开始入局</span>
@@ -174,23 +275,34 @@ const HomeView = ({ onSelectPuzzle }: { onSelectPuzzle: (p: Puzzle) => void }) =
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant" size={18} />
           <input 
             type="text" 
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="搜索汤名或关键词..." 
             className="w-full bg-surface-low border-none focus:ring-1 focus:ring-primary/50 text-on-surface placeholder:text-on-surface-variant/50 pl-12 py-3 text-sm tracking-wider"
           />
         </div>
         <div className="space-y-8">
-          {puzzles.map(p => (
-            <div key={p.id}>
-              <PuzzleCard puzzle={p} onClick={() => onSelectPuzzle(p)} />
-            </div>
-          ))}
+          {filteredRiddles.length === 0 ? (
+            <p className="text-sm text-on-surface-variant pl-1">没有匹配的汤，换个关键词试试。</p>
+          ) : (
+            filteredRiddles.map((r) => (
+              <div key={r.id}>
+                <RiddleCard
+                  riddle={r}
+                  played={!!progressMap[r.id]?.played}
+                  cleared={!!progressMap[r.id]?.cleared}
+                  onClick={() => onSelectRiddle(r)}
+                />
+              </div>
+            ))
+          )}
         </div>
       </section>
     </div>
   );
 };
 
-const PuzzleDetailModal = ({ puzzle, onClose, onStart }: { puzzle: Puzzle, onClose: () => void, onStart: () => void }) => {
+const PuzzleDetailModal = ({ riddle, onClose, onStart }: { riddle: Riddle; onClose: () => void; onStart: () => void }) => {
   return (
     <motion.div 
       initial={{ opacity: 0 }}
@@ -210,14 +322,14 @@ const PuzzleDetailModal = ({ puzzle, onClose, onStart }: { puzzle: Puzzle, onClo
             </button>
           </div>
           <div className="text-center mb-8">
-            <h2 className="font-serif text-4xl text-on-surface mb-2 asymmetric-offset">{puzzle.title}</h2>
+            <h2 className="font-serif text-4xl text-on-surface mb-2 asymmetric-offset">{riddle.title}</h2>
             <div className="flex justify-center gap-3 mt-4">
-              <span className="px-3 py-1 border border-secondary/30 text-secondary text-xs tracking-widest uppercase bg-secondary/5">{puzzle.difficulty}</span>
-              <span className="px-3 py-1 border border-primary/30 text-primary text-xs tracking-widest uppercase bg-primary/5">{puzzle.type}</span>
+              <span className="px-3 py-1 border border-secondary/30 text-secondary text-xs tracking-widest uppercase bg-secondary/5">{formatDifficultyLabel(riddle.difficulty)}</span>
+              <span className="px-3 py-1 border border-primary/30 text-primary text-xs tracking-widest uppercase bg-primary/5">{riddle.type}</span>
             </div>
           </div>
           <div className="space-y-6 text-on-surface-variant leading-relaxed text-lg font-serif">
-            <p>{puzzle.surface}</p>
+            <p>{riddle.surface}</p>
           </div>
         </div>
         <div className="p-6 bg-surface-low border-t border-outline-variant/10">
@@ -233,14 +345,33 @@ const PuzzleDetailModal = ({ puzzle, onClose, onStart }: { puzzle: Puzzle, onClo
   );
 };
 
-const GameRoomView = ({ puzzle, onBack, onFinish, onShowRules }: { puzzle: Puzzle, onBack: () => void, onFinish: (success: boolean, count: number) => void, onShowRules: () => void }) => {
+const GameRoomView = ({
+  riddle,
+  onBack,
+  onFinish,
+  onShowRules,
+}: {
+  riddle: Riddle;
+  onBack: () => void;
+  onFinish: (payload: GameFinishPayload) => void;
+  onShowRules: () => void;
+}) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [attempts, setAttempts] = useState(0);
   const [isVoiceMode, setIsVoiceMode] = useState(false);
+  const [speechListening, setSpeechListening] = useState(false);
+  const [sttBanner, setSttBanner] = useState<string | null>(null);
   const maxAttempts = 20;
   const scrollRef = useRef<HTMLDivElement>(null);
+  const gameStartedAtRef = useRef<number>(Date.now());
+  const cozeConvRef = useRef<CozeConversationState>({});
+
+  useEffect(() => {
+    gameStartedAtRef.current = Date.now();
+    cozeConvRef.current = {};
+  }, [riddle.id]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -248,28 +379,85 @@ const GameRoomView = ({ puzzle, onBack, onFinish, onShowRules }: { puzzle: Puzzl
     }
   }, [messages]);
 
+  useEffect(() => {
+    return () => {
+      stopSpeechToText();
+    };
+  }, []);
+
+  const buildFinish = (
+    success: boolean,
+    count: number,
+    elapsedMs: number,
+    finishReason: FinishReason,
+  ): GameFinishPayload => ({
+    success,
+    count,
+    elapsedMs,
+    bottomText: riddle.bottom,
+    finishReason,
+    riddleId: riddle.id,
+  });
+
+  const handleGiveUp = () => {
+    if (loading) return;
+    if (!window.confirm('确定放弃本局？将立即结算，本局计为失败。')) return;
+    const elapsedMs = Date.now() - gameStartedAtRef.current;
+    onFinish(buildFinish(false, attempts, elapsedMs, 'give_up'));
+  };
+
   const handleSend = async () => {
     if (!input.trim() || loading || attempts >= maxAttempts) return;
 
     const userMsg: Message = { id: Date.now().toString(), role: 'user', text: input };
     setMessages(prev => [...prev, userMsg]);
+    const question = input;
     setInput('');
     setLoading(true);
-    setAttempts(prev => prev + 1);
+    setAttempts((prev) => prev + 1);
 
-    const history = messages.map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', text: m.text }));
-    const response = await askHost(puzzle.surface, puzzle.base, input, history);
+    const history = messages.map((m) => ({ role: m.role === 'user' ? 'user' : 'assistant', text: m.text }));
+    const response = await askHost(
+      riddle.surface,
+      riddle.bottom,
+      question,
+      history,
+      cozeConvRef.current,
+    );
 
     const hostMsg: Message = { id: (Date.now() + 1).toString(), role: 'host', text: response };
-    setMessages(prev => [...prev, hostMsg]);
+    setMessages((prev) => [...prev, hostMsg]);
     setLoading(false);
 
-    // Check for success (simplified logic: if AI says something like "恭喜" or "真相")
-    if (response.includes('恭喜') || response.includes('真相') || response.includes('揭开')) {
-      setTimeout(() => onFinish(true, attempts + 1), 1500);
-    } else if (attempts + 1 >= maxAttempts) {
-      setTimeout(() => onFinish(false, maxAttempts), 1500);
+    const usedAttempts = attempts + 1;
+    const elapsedMs = Date.now() - gameStartedAtRef.current;
+    const hostOffline = response.includes('汤主走神了');
+
+    if (!hostOffline && hostIndicatesSuccess(response)) {
+      setTimeout(() => onFinish(buildFinish(true, usedAttempts, elapsedMs, 'win')), 1500);
+    } else if (usedAttempts >= maxAttempts) {
+      setTimeout(() => onFinish(buildFinish(false, usedAttempts, elapsedMs, 'out_of_turns')), 1500);
     }
+  };
+
+  const sttOk = isSpeechToTextSupported();
+
+  const startHoldSpeech = () => {
+    if (!sttOk) return;
+    setSttBanner(null);
+    setSpeechListening(true);
+    startSpeechToText({
+      onResult: (text) => {
+        if (text) setInput(text);
+      },
+      onError: (msg) => setSttBanner(msg),
+      onEnd: () => setSpeechListening(false),
+    });
+  };
+
+  const endHoldSpeech = () => {
+    stopSpeechToText();
+    setSpeechListening(false);
   };
 
   return (
@@ -280,7 +468,7 @@ const GameRoomView = ({ puzzle, onBack, onFinish, onShowRules }: { puzzle: Puzzl
             <ArrowLeft size={24} />
           </button>
         </div>
-        <h1 className="text-2xl font-serif font-bold text-primary tracking-[0.3em]">{puzzle.title}</h1>
+        <h1 className="text-2xl font-serif font-bold text-primary tracking-[0.3em]">{riddle.title}</h1>
         <div className="flex items-center gap-1">
           <button onClick={onShowRules} className="p-2 text-primary hover:bg-primary/10 transition-all">
             <HelpCircle size={24} />
@@ -288,21 +476,21 @@ const GameRoomView = ({ puzzle, onBack, onFinish, onShowRules }: { puzzle: Puzzl
         </div>
       </header>
 
-      <main className="pt-24 pb-32 flex-grow flex flex-col overflow-hidden">
+      <main className="pt-24 pb-36 flex-grow flex flex-col overflow-hidden">
         <div className="p-6">
           <div className="bg-surface-low p-8 relative overflow-hidden">
             <div className="absolute -right-12 -top-12 w-32 h-32 bg-surface-highest rotate-12 opacity-40"></div>
             <div className="relative z-10">
               <div className="flex justify-between items-start mb-6">
-                <span className="text-[10px] tracking-widest text-on-surface-variant uppercase">案件编号 #{puzzle.caseNumber}</span>
+                <span className="text-[10px] tracking-widest text-on-surface-variant uppercase">案件编号 #{riddle.id}</span>
                 <div className="flex items-center gap-2">
                   <HelpCircle size={14} className="text-secondary" />
-                  <span className="text-xs font-bold text-secondary">{puzzle.difficulty}</span>
+                  <span className="text-xs font-bold text-secondary">{formatDifficultyLabel(riddle.difficulty)}</span>
                 </div>
               </div>
               <div className="bg-surface-highest h-1 w-24 mb-6"></div>
               <p className="font-serif text-lg text-on-surface leading-relaxed">
-                {puzzle.surface}
+                {riddle.surface}
               </p>
               <div className="mt-8 pt-4 border-t border-outline-variant/20">
                 <div className="flex justify-between items-end mb-2">
@@ -315,6 +503,14 @@ const GameRoomView = ({ puzzle, onBack, onFinish, onShowRules }: { puzzle: Puzzl
                     style={{ width: `${((maxAttempts - attempts) / maxAttempts) * 100}%` }}
                   ></div>
                 </div>
+                <button
+                  type="button"
+                  onClick={handleGiveUp}
+                  disabled={loading}
+                  className="mt-4 text-[10px] tracking-widest text-on-surface-variant hover:text-primary underline-offset-2 hover:underline disabled:opacity-40"
+                >
+                  放弃本局
+                </button>
               </div>
             </div>
           </div>
@@ -341,53 +537,125 @@ const GameRoomView = ({ puzzle, onBack, onFinish, onShowRules }: { puzzle: Puzzl
         </div>
       </main>
 
-      <div className="fixed bottom-0 w-full max-w-md z-50 bg-surface pt-2 pb-6 px-4">
+      <div className="fixed bottom-0 w-full max-w-md z-50 bg-surface border-t border-outline-variant/10 pt-2 pb-6 px-4 space-y-2">
+        {isVoiceMode && !sttOk && (
+          <p className="text-[10px] text-on-surface-variant leading-relaxed px-1">
+            当前环境不支持浏览器语音识别（微信小游戏需单独接入）。请点左侧键盘图标改用文字输入。
+          </p>
+        )}
+        {sttBanner && (
+          <p className="text-[10px] text-primary px-1">{sttBanner}</p>
+        )}
+        {isVoiceMode && sttOk && (
+          <p className="text-[10px] text-on-surface-variant px-1">按住麦克风说话，松开后识别为文字填入框内，再点发送。</p>
+        )}
         <div className="flex items-center gap-3">
           <button 
-            onClick={() => setIsVoiceMode(!isVoiceMode)}
-            className="w-12 h-12 flex items-center justify-center border border-primary/30 bg-surface-high text-primary hover:bg-surface-highest active:scale-95 transition-all"
+            type="button"
+            onClick={() => {
+              endHoldSpeech();
+              setIsVoiceMode(!isVoiceMode);
+              setSttBanner(null);
+            }}
+            className="w-12 h-12 shrink-0 flex items-center justify-center border border-primary/30 bg-surface-high text-primary hover:bg-surface-highest active:scale-95 transition-all"
           >
             {isVoiceMode ? <Keyboard size={24} /> : <Mic size={24} />}
           </button>
           <div className="flex-grow flex items-center bg-surface-low border border-outline-variant/30 shadow-2xl overflow-hidden min-h-[3rem]">
             {isVoiceMode ? (
-              <div className="flex-grow flex items-center justify-center gap-1.5 py-3">
-                {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
-                  <motion.div
-                    key={i}
-                    animate={{ 
-                      height: [8, 24, 12, 28, 10],
+              <div
+                className="flex-grow flex flex-col items-stretch justify-center gap-2 py-2 px-2 min-h-[3rem]"
+                onPointerLeave={sttOk ? endHoldSpeech : undefined}
+              >
+                <input
+                  type="text"
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && !e.nativeEvent.isComposing && void handleSend()}
+                  placeholder="识别结果可修改后发送"
+                  className="w-full bg-transparent border-b border-outline-variant/30 py-1.5 text-sm font-serif text-on-surface placeholder:text-on-surface-variant/40"
+                />
+                <div className="flex items-center justify-center gap-1.5 py-1">
+                  {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
+                    <motion.div
+                      key={i}
+                      animate={
+                        speechListening && sttOk
+                          ? { height: [8, 24, 12, 28, 10] }
+                          : { height: 8 }
+                      }
+                      transition={{
+                        repeat: speechListening && sttOk ? Infinity : 0,
+                        duration: 0.8,
+                        delay: i * 0.1,
+                        ease: 'easeInOut',
+                      }}
+                      className="w-1 bg-primary/60 rounded-full"
+                    />
+                  ))}
+                </div>
+                {sttOk && (
+                  <button
+                    type="button"
+                    className="py-2 text-[10px] tracking-widest text-primary border border-primary/30 bg-surface-high select-none touch-none"
+                    onPointerDown={(e) => {
+                      e.preventDefault();
+                      startHoldSpeech();
                     }}
-                    transition={{ 
-                      repeat: Infinity, 
-                      duration: 0.8, 
-                      delay: i * 0.1,
-                      ease: "easeInOut"
-                    }}
-                    className="w-1 bg-primary/60"
-                  />
-                ))}
+                    onPointerUp={endHoldSpeech}
+                    onPointerCancel={endHoldSpeech}
+                  >
+                    {speechListening ? '松开结束' : '按住说话'}
+                  </button>
+                )}
               </div>
             ) : (
               <input 
                 type="text" 
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+                onKeyDown={(e) => e.key === 'Enter' && !e.nativeEvent.isComposing && void handleSend()}
                 placeholder="向先知提问..." 
                 className="flex-grow bg-transparent border-none focus:ring-0 py-3 px-2 font-serif text-on-surface placeholder:text-on-surface-variant/40"
               />
             )}
           </div>
+          <button
+            type="button"
+            onClick={() => void handleSend()}
+            disabled={loading || attempts >= maxAttempts || !input.trim()}
+            className="w-12 h-12 shrink-0 flex items-center justify-center border border-primary/30 bg-primary text-surface hover:brightness-110 active:scale-95 transition-all disabled:opacity-40 disabled:pointer-events-none"
+            aria-label="发送"
+          >
+            <Send size={22} />
+          </button>
         </div>
       </div>
     </div>
   );
 };
 
-const SettlementView = ({ success, count, onHome }: { success: boolean, count: number, onHome: () => void }) => {
-  const grade = count <= 5 ? '神探' : count <= 12 ? '老警探' : '有点悬';
-  const gradeColor = count <= 5 ? 'text-secondary' : count <= 12 ? 'text-slate-300' : 'text-orange-400';
+const SettlementView = ({
+  success,
+  count,
+  elapsedMs,
+  bottomText,
+  finishReason,
+  onHome,
+}: {
+  success: boolean;
+  count: number;
+  elapsedMs: number;
+  bottomText: string;
+  finishReason: FinishReason;
+  onHome: () => void;
+}) => {
+  const [bottomOpen, setBottomOpen] = useState(false);
+  const successGrade = count <= 5 ? '神探' : count <= 12 ? '老警探' : '有点悬';
+  const failReason: 'give_up' | 'out_of_turns' =
+    finishReason === 'give_up' ? 'give_up' : 'out_of_turns';
+  const failTitle = !success ? failureGradeTitle(failReason, count) : '';
+  const failSub = !success ? failureGradeSubtitle(failReason, count) : '';
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-surface/90 backdrop-blur-md">
@@ -408,11 +676,11 @@ const SettlementView = ({ success, count, onHome }: { success: boolean, count: n
         <div className="overflow-y-auto no-scrollbar p-6 pt-12 space-y-8 relative z-20">
           <header className="text-center space-y-2 pt-4">
             <div className="relative inline-block">
-              <h2 className={`font-serif text-5xl italic tracking-tight ${success ? 'shimmer-gold' : 'text-on-surface-variant opacity-50'}`}>
-                {success ? grade : '挑战失败'}
+              <h2 className={`font-serif text-5xl italic tracking-tight ${success ? 'shimmer-gold' : 'text-on-surface-variant'}`}>
+                {success ? successGrade : failTitle}
               </h2>
               <p className="text-[10px] tracking-[0.3em] uppercase text-on-surface-variant/60 mt-1">
-                {success ? 'MASTER DETECTIVE' : 'CHALLENGE FAILED'}
+                {success ? 'MASTER DETECTIVE' : failSub}
               </p>
             </div>
             <div className="w-12 h-px bg-gradient-to-r from-transparent via-outline/30 to-transparent mx-auto mt-4"></div>
@@ -426,17 +694,37 @@ const SettlementView = ({ success, count, onHome }: { success: boolean, count: n
                 <div className="h-px flex-1 bg-outline/20"></div>
               </div>
               <div className="bg-surface-high/40 border border-outline/10 p-5">
-                <p className="text-on-surface-variant leading-relaxed text-sm text-justify">
-                  真相往往隐藏在最显而易见的荒诞之中。你通过缜密的推理，最终拼凑出了故事的完整面貌。
+                <p className="text-on-surface leading-relaxed text-sm text-justify whitespace-pre-wrap">
+                  {bottomText.trim() || '（暂无汤底文案）'}
                 </p>
               </div>
+            </section>
+          )}
+
+          {!success && (
+            <section className="space-y-3">
+              <button
+                type="button"
+                onClick={() => setBottomOpen((o) => !o)}
+                className="w-full flex items-center justify-between gap-2 py-3 px-4 border border-outline-variant/30 bg-surface-low text-left text-sm font-serif text-primary tracking-widest"
+              >
+                <span>{bottomOpen ? '收起汤底' : '展开汤底'}</span>
+                {bottomOpen ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+              </button>
+              {bottomOpen && (
+                <div className="bg-surface-high/40 border border-outline/10 p-5">
+                  <p className="text-on-surface leading-relaxed text-sm text-justify whitespace-pre-wrap">
+                    {bottomText.trim() || '（暂无汤底文案）'}
+                  </p>
+                </div>
+              )}
             </section>
           )}
 
           <section className="grid grid-cols-3 gap-2">
             <div className="bg-surface-low py-3 px-1 border-l border-primary/20 flex flex-col items-center justify-center">
               <span className="text-[8px] uppercase tracking-widest text-on-surface-variant opacity-60">用时</span>
-              <span className="font-serif text-xl text-on-surface tracking-tighter">04:12</span>
+              <span className="font-serif text-xl text-on-surface tracking-tighter">{formatElapsed(elapsedMs)}</span>
             </div>
             <div className="bg-surface-low py-3 px-1 border-l border-primary/20 flex flex-col items-center justify-center">
               <span className="text-[8px] uppercase tracking-widest text-on-surface-variant opacity-60">提问</span>
@@ -444,7 +732,7 @@ const SettlementView = ({ success, count, onHome }: { success: boolean, count: n
             </div>
             <div className="bg-surface-low py-3 px-1 border-l border-secondary/20 flex flex-col items-center justify-center">
               <span className="text-[8px] uppercase tracking-widest text-on-surface-variant opacity-60">提示</span>
-              <span className="font-serif text-xl text-secondary tracking-tighter">1</span>
+              <span className="font-serif text-xl text-secondary tracking-tighter">0</span>
             </div>
           </section>
 
@@ -775,9 +1063,21 @@ const HistoryView = ({ onBack }: { onBack: () => void }) => {
 export default function App() {
   const [view, setView] = useState<View>('home');
   const [lastView, setLastView] = useState<View>('home');
-  const [selectedPuzzle, setSelectedPuzzle] = useState<Puzzle | null>(null);
-  const [currentGame, setCurrentGame] = useState<Puzzle | null>(null);
-  const [settlement, setSettlement] = useState<{ success: boolean, count: number } | null>(null);
+  const [selectedRiddle, setSelectedRiddle] = useState<Riddle | null>(null);
+  const [currentRiddle, setCurrentRiddle] = useState<Riddle | null>(null);
+  const [progressEpoch, setProgressEpoch] = useState(0);
+  const progressMap = useMemo(() => getProgress(), [progressEpoch]);
+
+  useEffect(() => subscribeProgress(() => setProgressEpoch((n) => n + 1)), []);
+
+  const [settlement, setSettlement] = useState<{
+    success: boolean;
+    count: number;
+    elapsedMs: number;
+    bottomText: string;
+    finishReason: FinishReason;
+    riddleId: string;
+  } | null>(null);
 
   const handleNavigate = (v: View) => {
     if (v === 'developing' || v === 'submit' || v === 'history' || v === 'rules') {
@@ -786,43 +1086,55 @@ export default function App() {
     setView(v);
   };
 
-  const handleSelectPuzzle = (p: Puzzle) => {
-    setSelectedPuzzle(p);
+  const handleSelectRiddle = (r: Riddle) => {
+    setSelectedRiddle(r);
   };
 
   const handleStartGame = () => {
-    if (selectedPuzzle) {
-      setCurrentGame(selectedPuzzle);
-      setSelectedPuzzle(null);
+    if (selectedRiddle) {
+      setCurrentRiddle(selectedRiddle);
+      setSelectedRiddle(null);
       setView('game');
     }
   };
 
-  const handleFinishGame = (success: boolean, count: number) => {
-    setSettlement({ success, count });
+  const handleFinishGame = (payload: GameFinishPayload) => {
+    recordGameEnd({ riddleId: payload.riddleId, cleared: payload.success });
+    setSettlement({
+      success: payload.success,
+      count: payload.count,
+      elapsedMs: payload.elapsedMs,
+      bottomText: payload.bottomText,
+      finishReason: payload.finishReason,
+      riddleId: payload.riddleId,
+    });
   };
 
   const handleHome = () => {
     setSettlement(null);
-    setCurrentGame(null);
+    setCurrentRiddle(null);
     setView('home');
   };
 
   return (
     <div className="bg-surface min-h-screen selection:bg-primary selection:text-surface">
       <AnimatePresence mode="wait">
-        {view === 'game' && currentGame ? (
-          <motion.div key="game" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <GameRoomView 
-              puzzle={currentGame} 
-              onBack={() => setView('home')} 
-              onFinish={handleFinishGame}
-              onShowRules={() => setView('rules')}
-            />
-          </motion.div>
-        ) : view === 'rules' ? (
-          <motion.div key="rules" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <RulesView onBack={() => setView('game')} />
+        {(view === 'game' || view === 'rules') && currentRiddle ? (
+          <motion.div key="game-session" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            {/* 规则页叠在对局之上，避免卸载 GameRoomView 导致消息与回合进度丢失 */}
+            <div className={view === 'rules' ? 'hidden' : undefined} aria-hidden={view === 'rules'}>
+              <GameRoomView
+                riddle={currentRiddle}
+                onBack={() => setView('home')}
+                onFinish={handleFinishGame}
+                onShowRules={() => setView('rules')}
+              />
+            </div>
+            {view === 'rules' && (
+              <div className="fixed inset-0 z-[200] overflow-y-auto bg-surface">
+                <RulesView onBack={() => setView('game')} />
+              </div>
+            )}
           </motion.div>
         ) : view === 'history' ? (
           <motion.div key="history" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
@@ -832,14 +1144,12 @@ export default function App() {
           <motion.div key="submit" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <SubmitView onBack={() => setView('profile')} />
           </motion.div>
-        ) : view === 'developing' && lastView === 'profile' ? (
-          <motion.div key="developing-full" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <DevelopingView onBack={() => setView('profile')} />
-          </motion.div>
         ) : (
           <motion.div key="layout" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <Layout activeTab={view} onTabChange={handleNavigate}>
-              {view === 'home' && <HomeView onSelectPuzzle={handleSelectPuzzle} />}
+              {view === 'home' && (
+                <HomeView onSelectRiddle={handleSelectRiddle} progressMap={progressMap} />
+              )}
               {view === 'profile' && <ProfileView onNavigate={handleNavigate} />}
               {view === 'developing' && <DevelopingView onBack={() => setView(lastView)} showBack={false} />}
             </Layout>
@@ -848,10 +1158,10 @@ export default function App() {
       </AnimatePresence>
 
       <AnimatePresence>
-        {selectedPuzzle && (
+        {selectedRiddle && (
           <PuzzleDetailModal 
-            puzzle={selectedPuzzle} 
-            onClose={() => setSelectedPuzzle(null)} 
+            riddle={selectedRiddle} 
+            onClose={() => setSelectedRiddle(null)} 
             onStart={handleStartGame}
           />
         )}
@@ -859,6 +1169,9 @@ export default function App() {
           <SettlementView 
             success={settlement.success} 
             count={settlement.count} 
+            elapsedMs={settlement.elapsedMs}
+            bottomText={settlement.bottomText}
+            finishReason={settlement.finishReason}
             onHome={handleHome} 
           />
         )}
