@@ -1,6 +1,6 @@
 <view class="wrap">
   <view class="hero">
-    <text class="title">海龟汤</text>
+    <text class="title">汤谱</text>
     <text class="sub">本小程序首阶段通过 WebView 打开已部署的 H5 对局页；原生页面与登录可后续迭代。</text>
   </view>
   <button class="btn" type="default" bindtap="onOpenGame" disabled="{{!canOpen}}">进入对局</button>

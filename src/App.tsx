@@ -20,7 +20,8 @@ import {
 } from 'lucide-react';
 import {
   riddles,
-  pickRandomRiddle,
+  mergeRiddlePools,
+  pickRandomRiddleFromPool,
   formatDifficultyLabel,
   riddleSummary,
   type Riddle,
@@ -29,7 +30,15 @@ import { askHost, type CozeConversationState } from './lib/cozeHost';
 import { recordGameEnd, subscribeProgress, getProgress, type ProgressMap } from './lib/playerProgress';
 import { isSpeechToTextSupported, startSpeechToText, stopSpeechToText } from './lib/speechToText';
 import { isWeChatMiniProgramWebView } from './lib/wechatEnv';
-import { addSubmission, listSubmissions, type RiddleSubmission, type SoupType } from './lib/riddleSubmissions';
+import { apiUrl, canUseRemoteApi } from './lib/apiBase';
+import {
+  addSubmission,
+  listSubmissions,
+  submissionStatusLabel,
+  type RiddleSubmission,
+  type SoupType,
+  type SubmissionStatus,
+} from './lib/riddleSubmissions';
 
 function formatElapsed(ms: number): string {
   const totalSec = Math.max(0, Math.floor(ms / 1000));
@@ -103,7 +112,7 @@ const Layout = ({ children, activeTab, onTabChange }: { children: React.ReactNod
           className={`flex flex-col items-center gap-1 transition-colors ${activeTab === 'home' ? 'text-primary' : 'text-on-surface/40'}`}
         >
           <HomeNavIcon size={24} fill={activeTab === 'home' ? 'currentColor' : 'none'} />
-          <span className="text-[10px] uppercase tracking-widest font-bold">海龟汤</span>
+          <span className="text-[10px] uppercase tracking-widest font-bold">汤谱</span>
         </button>
         <button 
           onClick={() => onTabChange('developing')}
@@ -185,15 +194,17 @@ const RiddleCard = ({
 const HomeView = ({
   onSelectRiddle,
   progressMap,
+  riddlePool,
 }: {
   onSelectRiddle: (r: Riddle) => void;
   progressMap: ProgressMap;
+  riddlePool: Riddle[];
 }) => {
-  const [bannerRiddle, setBannerRiddle] = useState<Riddle>(() => pickRandomRiddle());
+  const [bannerRiddle, setBannerRiddle] = useState<Riddle>(() => pickRandomRiddleFromPool(riddlePool));
   const [searchQuery, setSearchQuery] = useState('');
   const bannerProg = progressMap[bannerRiddle.id];
 
-  const filteredRiddles = riddles.filter((r) => {
+  const filteredRiddles = riddlePool.filter((r) => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return true;
     return (
@@ -205,7 +216,7 @@ const HomeView = ({
 
   const handleRandomSoup = (e: React.MouseEvent) => {
     e.stopPropagation();
-    setBannerRiddle(pickRandomRiddle(bannerRiddle.id));
+    setBannerRiddle(pickRandomRiddleFromPool(riddlePool, bannerRiddle.id));
   };
 
   return (
@@ -469,13 +480,15 @@ const GameRoomView = ({
 
   return (
     <div className="flex flex-col h-screen bg-surface">
-      <header className="fixed top-0 w-full max-w-md flex justify-between items-center px-4 min-h-20 pt-[env(safe-area-inset-top,0px)] pb-2 bg-surface border-b border-outline-variant/10 z-50">
+      <header className="fixed top-0 w-full max-w-md flex justify-between items-center px-4 min-h-[3.25rem] pt-[env(safe-area-inset-top,0px)] pb-1 bg-surface border-b border-outline-variant/10 z-50">
         <div className="flex items-center gap-1">
           <button onClick={onBack} className="p-2 text-primary hover:bg-primary/10 transition-all">
             <ArrowLeft size={24} />
           </button>
         </div>
-        <h1 className="text-2xl font-serif font-bold text-primary tracking-[0.3em]">{riddle.title}</h1>
+        <h1 className="text-xl font-serif font-bold text-primary tracking-[0.25em] max-w-[55%] truncate text-center">
+          {riddle.title}
+        </h1>
         <div className="flex items-center gap-1">
           <button onClick={onShowRules} className="p-2 text-primary hover:bg-primary/10 transition-all">
             <HelpCircle size={24} />
@@ -483,23 +496,23 @@ const GameRoomView = ({
         </div>
       </header>
 
-      <main className="pt-24 pb-36 flex-grow flex flex-col overflow-hidden">
-        <div className="p-6">
-          <div className="bg-surface-low p-8 relative overflow-hidden">
+      <main className="pt-[calc(env(safe-area-inset-top,0px)+4rem)] pb-36 flex-grow flex flex-col min-h-0 overflow-hidden">
+        <div className="shrink-0 px-4 pt-2 pb-2">
+          <div className="bg-surface-low p-5 relative overflow-hidden">
             <div className="absolute -right-12 -top-12 w-32 h-32 bg-surface-highest rotate-12 opacity-40"></div>
-            <div className="relative z-10">
-              <div className="flex justify-between items-start mb-6">
+            <div className="relative z-10 flex flex-col gap-0">
+              <div className="flex justify-between items-start mb-3">
                 <span className="text-[10px] tracking-widest text-on-surface-variant uppercase">案件编号 #{riddle.id}</span>
                 <div className="flex items-center gap-2">
                   <HelpCircle size={14} className="text-secondary" />
                   <span className="text-xs font-bold text-secondary">{formatDifficultyLabel(riddle.difficulty)}</span>
                 </div>
               </div>
-              <div className="bg-surface-highest h-1 w-24 mb-6"></div>
-              <p className="font-serif text-lg text-on-surface leading-relaxed">
-                {riddle.surface}
-              </p>
-              <div className="mt-8 pt-4 border-t border-outline-variant/20">
+              <div className="bg-surface-highest h-1 w-24 mb-3 shrink-0"></div>
+              <div className="max-h-[min(40vh,280px)] min-h-0 overflow-y-auto overscroll-y-contain touch-pan-y pr-1 -mr-1">
+                <p className="font-serif text-lg text-on-surface leading-relaxed whitespace-pre-wrap">{riddle.surface}</p>
+              </div>
+              <div className="mt-5 pt-3 border-t border-outline-variant/20 shrink-0">
                 <div className="flex justify-between items-end mb-2">
                   <span className="text-[10px] uppercase tracking-[0.2em] text-on-surface-variant opacity-70">尝试余量</span>
                   <span className="text-xs font-bold text-primary">{maxAttempts - attempts} / {maxAttempts}</span>
@@ -514,7 +527,7 @@ const GameRoomView = ({
                   type="button"
                   onClick={handleGiveUp}
                   disabled={loading}
-                  className="mt-4 text-[10px] tracking-widest text-on-surface-variant hover:text-primary underline-offset-2 hover:underline disabled:opacity-40"
+                  className="mt-3 text-[10px] tracking-widest text-on-surface-variant hover:text-primary underline-offset-2 hover:underline disabled:opacity-40"
                 >
                   放弃本局
                 </button>
@@ -523,7 +536,7 @@ const GameRoomView = ({
           </div>
         </div>
 
-        <div ref={scrollRef} className="flex-grow px-6 py-4 space-y-10 overflow-y-auto no-scrollbar">
+        <div ref={scrollRef} className="flex-grow min-h-0 px-4 pt-2 pb-3 space-y-10 overflow-y-auto no-scrollbar">
           {messages.map(m => (
             <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end pr-4' : 'justify-start pl-4'}`}>
               <div className={`max-w-[85%] p-4 relative ${m.role === 'user' ? 'bg-surface-highest' : 'bg-surface-low border-l-4 border-primary/30'}`}>
@@ -896,28 +909,34 @@ const SubmitView = ({
   const [selectedType, setSelectedType] = useState<SoupType>('清汤');
   const [formError, setFormError] = useState<string | null>(null);
   const [formSuccess, setFormSuccess] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     setFormError(null);
     setFormSuccess(null);
-    const result = addSubmission({
-      title,
-      surface,
-      bottom,
-      soupType: selectedType,
-    });
-    if (result.ok === false) {
-      setFormError(result.error);
-      return;
+    setSubmitting(true);
+    try {
+      const result = await addSubmission({
+        title,
+        surface,
+        bottom,
+        soupType: selectedType,
+      });
+      if (result.ok === false) {
+        setFormError(result.error);
+        return;
+      }
+      setFormSuccess('已提交服务器，管理员审核通过后将出现在汤谱中');
+      setTitle('');
+      setSurface('');
+      setBottom('');
+      setSelectedType('清汤');
+      window.setTimeout(() => {
+        onSubmitted?.();
+      }, 1200);
+    } finally {
+      setSubmitting(false);
     }
-    setFormSuccess('已保存到本机投稿记录');
-    setTitle('');
-    setSurface('');
-    setBottom('');
-    setSelectedType('清汤');
-    window.setTimeout(() => {
-      onSubmitted?.();
-    }, 1200);
   };
 
   return (
@@ -995,13 +1014,18 @@ const SubmitView = ({
 
         <button
           type="button"
-          onClick={handleSubmit}
-          className="w-full py-5 bg-primary text-surface font-bold tracking-[0.2em] uppercase text-sm flex items-center justify-center gap-2 hover:brightness-110 transition-all"
+          onClick={() => void handleSubmit()}
+          disabled={submitting}
+          className="w-full py-5 bg-primary text-surface font-bold tracking-[0.2em] uppercase text-sm flex items-center justify-center gap-2 hover:brightness-110 transition-all disabled:opacity-50"
         >
-          封印并提交 <FileText size={18} />
+          {submitting ? '提交中…' : (
+            <>
+              封印并提交 <FileText size={18} />
+            </>
+          )}
         </button>
         <p className="text-[10px] text-on-surface-variant/70 leading-relaxed">
-          投稿保存在本机浏览器（localStorage），清除微信或站点数据会丢失；后续可再接服务端审核。
+          投稿发往服务端待审核；通过后将出现在汤谱。本机仍会保留一条记录便于查看状态（与清除缓存有关）。
         </p>
       </div>
     </div>
@@ -1023,9 +1047,18 @@ function formatSubmissionDate(ts: number): string {
   }
 }
 
-function submissionStatusClass(status: RiddleSubmission['status']): string {
-  if (status === '待审核') return 'text-secondary';
+function submissionStatusClass(status: SubmissionStatus): string {
+  if (status === 'pending') return 'text-secondary';
+  if (status === 'approved') return 'shimmer-gold font-bold text-primary';
+  if (status === 'rejected') return 'text-tertiary';
   return 'text-on-surface-variant';
+}
+
+function submissionBadgeClass(status: SubmissionStatus): string {
+  if (status === 'pending') return 'bg-secondary/20 text-secondary';
+  if (status === 'approved') return 'bg-primary/20 text-primary';
+  if (status === 'rejected') return 'bg-tertiary/20 text-tertiary';
+  return 'bg-on-surface-variant/20 text-on-surface-variant';
 }
 
 const HistoryView = ({
@@ -1053,8 +1086,8 @@ const HistoryView = ({
 
       {items.length === 0 ? (
         <div className="space-y-6 py-12 text-center border border-outline-variant/20 bg-surface-low/50 px-6">
-          <p className="text-on-surface-variant font-serif text-lg">暂无本机投稿</p>
-          <p className="text-sm text-on-surface-variant/80">在「贡献新汤」填写并提交后，会出现在这里。</p>
+          <p className="text-on-surface-variant font-serif text-lg">暂无投稿记录</p>
+          <p className="text-sm text-on-surface-variant/80">在「贡献新汤」提交成功后会在此显示；状态以服务端审核为准。</p>
           <button
             type="button"
             onClick={onGoSubmit}
@@ -1089,7 +1122,9 @@ const HistoryView = ({
                   <p className="text-[10px] text-on-surface-variant/70">浓度：{item.soupType}</p>
                 </div>
                 <div className="flex flex-col items-end shrink-0">
-                  <div className={`font-serif text-lg italic ${submissionStatusClass(item.status)}`}>{item.status}</div>
+                  <div className={`font-serif text-lg italic ${submissionStatusClass(item.status)}`}>
+                    {submissionStatusLabel(item.status)}
+                  </div>
                 </div>
               </div>
             </div>
@@ -1120,9 +1155,9 @@ const HistoryView = ({
                     <h2 className="text-3xl font-serif text-on-surface break-words">{selectedItem.title}</h2>
                   </div>
                   <div
-                    className={`px-3 py-1 text-xs font-bold tracking-widest shrink-0 ${selectedItem.status === '待审核' ? 'bg-secondary/20 text-secondary' : 'bg-on-surface-variant/20 text-on-surface-variant'}`}
+                    className={`px-3 py-1 text-xs font-bold tracking-widest shrink-0 ${submissionBadgeClass(selectedItem.status)}`}
                   >
-                    {selectedItem.status}
+                    {submissionStatusLabel(selectedItem.status)}
                   </div>
                 </div>
 
@@ -1164,8 +1199,35 @@ export default function App() {
   const [currentRiddle, setCurrentRiddle] = useState<Riddle | null>(null);
   const [progressEpoch, setProgressEpoch] = useState(0);
   const progressMap = useMemo(() => getProgress(), [progressEpoch]);
+  const [publishedExtra, setPublishedExtra] = useState<Riddle[]>([]);
+
+  const riddlePool = useMemo(() => mergeRiddlePools(riddles, publishedExtra), [publishedExtra]);
 
   useEffect(() => subscribeProgress(() => setProgressEpoch((n) => n + 1)), []);
+
+  useEffect(() => {
+    if (!canUseRemoteApi()) {
+      setPublishedExtra([]);
+      return;
+    }
+    let cancelled = false;
+    fetch(apiUrl('/api/riddles-published'))
+      .then((r) => r.json())
+      .then((data: unknown) => {
+        if (cancelled) return;
+        if (!Array.isArray(data)) {
+          setPublishedExtra([]);
+          return;
+        }
+        setPublishedExtra(data as Riddle[]);
+      })
+      .catch(() => {
+        if (!cancelled) setPublishedExtra([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const [settlement, setSettlement] = useState<{
     success: boolean;
@@ -1251,7 +1313,11 @@ export default function App() {
           <motion.div key="layout" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <Layout activeTab={view} onTabChange={handleNavigate}>
               {view === 'home' && (
-                <HomeView onSelectRiddle={handleSelectRiddle} progressMap={progressMap} />
+                <HomeView
+                  onSelectRiddle={handleSelectRiddle}
+                  progressMap={progressMap}
+                  riddlePool={riddlePool}
+                />
               )}
               {view === 'profile' && <ProfileView onNavigate={handleNavigate} />}
               {view === 'developing' && <DevelopingView onBack={() => setView(lastView)} showBack={false} />}

@@ -34,7 +34,28 @@ H5 在 **微信小程序 WebView** 内会将 `document.title` 置空，减少微
 
 对局页 [`miniprogram/pages/webview/webview.json`](miniprogram/pages/webview/webview.json) 使用 **`navigationStyle: custom`**，隐藏小程序原生导航栏，使内嵌 H5 尽量全屏展示（以真机为准；IDE 模拟器与真机可能仍有差异）。H5 内对局返回依赖页面内按钮。
 
-H5「贡献新汤 / 投稿记录」当前将投稿保存在 **浏览器 localStorage**（本机），清除微信或站点数据会丢失；与正式题库 `riddles.csv` 无关。
+### 投稿审核（Supabase + Vercel）
+
+「贡献新汤」在生产环境通过 **同源 `/api/submissions`** 写入 Supabase 表 `riddle_submissions`；**汤谱**由构建内 [`src/data/riddles.csv`](src/data/riddles.csv) 与 **`GET /api/riddles-published`**（`status = approved`）合并展示。管理员审核通过后，用户刷新 H5 即可看到新谜题（小程序 WebView 同理）。
+
+1. 在 Supabase 项目 **SQL Editor** 中执行 [`supabase/migrations/001_riddle_submissions.sql`](supabase/migrations/001_riddle_submissions.sql) 建表。
+2. 在 [Vercel](https://vercel.com/) 项目 **Environment Variables** 中配置（勿提交到仓库）：
+   - `SUPABASE_URL`、`SUPABASE_SERVICE_ROLE_KEY`（**仅服务端**，用于 `api/` 函数）
+   - `ADMIN_SECRET`（随机长字符串，用于管理接口 `Authorization: Bearer …`）
+3. 将含 `api/` 的代码部署到 Vercel 后，在 [微信公众平台](https://mp.weixin.qq.com/) 为小程序配置 **request 合法域名**（与 H5 业务域名一致的生产域名），否则真机内无法请求 `/api`。
+4. **本地开发**：Vite 不提供 `/api`，请在 `.env.local` 设置 `VITE_API_BASE=https://你的生产域名`（无尾斜杠），使浏览器请求已部署的 Vercel API；或使用 `vercel dev` 同源联调。
+
+**管理员操作示例**（将 `ORIGIN` 换为生产根 URL，`ID` 换为待审投稿的 `uuid`）：
+
+```bash
+export ADMIN_SECRET='你的密钥'
+curl -sS -H "Authorization: Bearer $ADMIN_SECRET" "$ORIGIN/api/admin/submissions?status=pending"
+curl -sS -X PATCH -H "Authorization: Bearer $ADMIN_SECRET" -H "Content-Type: application/json" \
+  -d '{"status":"approved","reviewer_note":"ok"}' "$ORIGIN/api/admin/submissions/$ID"
+# 驳回：-d '{"status":"rejected","reviewer_note":"原因"}'
+```
+
+`GET /api/admin/submissions?status=all` 可查看全部状态。投稿记录在客户端仍会写入 **localStorage** 作展示缓存；状态以服务端为准，可通过再次 PATCH 后让用户重新打开应用拉取汤谱列表。
 
 小游戏（`game.json` 等）与本目录无关；若只做小程序，忽略仓库名中的 minigame 即可。
 
