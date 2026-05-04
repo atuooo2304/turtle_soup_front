@@ -6,3 +6,6 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# 微信小程序开发者本机配置（可选）
+miniprogram/project.private.config.json

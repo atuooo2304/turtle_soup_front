@@ -1,0 +1,2 @@
+<web-view wx:if="{{url}}" src="{{url}}"></web-view>
+<view wx:else class="empty">无法加载 H5。请检查 miniprogram/config.js 的 h5BaseUrl（须 https）及微信公众平台的业务域名配置。</view>

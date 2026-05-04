@@ -1,0 +1,5 @@
+.empty {
+  padding: 48rpx;
+  font-size: 28rpx;
+  color: rgba(232, 228, 220, 0.65);
+}

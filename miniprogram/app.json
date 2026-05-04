@@ -1,0 +1,15 @@
+{
+  "pages": [
+    "pages/webview/webview",
+    "pages/index/index"
+  ],
+  "window": {
+    "navigationBarTitleText": "海龟汤",
+    "navigationBarBackgroundColor": "#141218",
+    "navigationBarTextStyle": "white",
+    "backgroundColor": "#141218",
+    "backgroundTextStyle": "light"
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json"
+}
