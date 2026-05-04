@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { getSupabaseAdmin } from '../../_lib/supabase';
 import { applyCors, handleOptions } from '../../_lib/cors';
+import { parseJsonBody } from '../../_lib/parseJsonBody';
 
 function json(res: VercelResponse, status: number, body: unknown): void {
   applyCors(res);
@@ -33,14 +34,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
     return;
   }
   try {
-    const raw = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
-    const status = raw?.status === 'approved' || raw?.status === 'rejected' ? raw.status : null;
+    const raw = parseJsonBody(req);
+    if (raw == null || typeof raw !== 'object' || Array.isArray(raw)) {
+      json(res, 400, { error: '请求体须为 JSON 对象' });
+      return;
+    }
+    const body = raw as Record<string, unknown>;
+    const status = body.status === 'approved' || body.status === 'rejected' ? body.status : null;
     if (!status) {
       json(res, 400, { error: 'status 须为 approved 或 rejected' });
       return;
     }
     const reviewer_note =
-      typeof raw?.reviewer_note === 'string' ? raw.reviewer_note.slice(0, 2000) : null;
+      typeof body.reviewer_note === 'string' ? body.reviewer_note.slice(0, 2000) : null;
     const supabase = getSupabaseAdmin();
     const { data, error } = await supabase
       .from('riddle_submissions')

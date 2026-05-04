@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { getSupabaseAdmin } from './_lib/supabase';
 import { applyCors, handleOptions } from './_lib/cors';
+import { parseJsonBody } from './_lib/parseJsonBody';
 
 const SOUP = new Set(['清汤', '红汤', '黑汤']);
 const MAX_TITLE = 200;
@@ -9,20 +10,6 @@ const MAX_BODY = 12000;
 function json(res: VercelResponse, status: number, body: unknown): void {
   applyCors(res);
   res.status(status).setHeader('Content-Type', 'application/json; charset=utf-8').json(body);
-}
-
-/** Vercel Node 下 body 可能是 object / string / Buffer，需统一解析 */
-function parseJsonBody(req: VercelRequest): unknown {
-  const b = req.body as unknown;
-  if (b == null || b === '') return undefined;
-  if (typeof b === 'object' && !Buffer.isBuffer(b)) return b;
-  const s = Buffer.isBuffer(b) ? b.toString('utf8') : typeof b === 'string' ? b : String(b);
-  if (!s.trim()) return undefined;
-  try {
-    return JSON.parse(s) as unknown;
-  } catch {
-    return undefined;
-  }
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
@@ -95,11 +82,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
       },
     });
   } catch (e) {
-    if ((e as Error).message?.includes('Missing SUPABASE')) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg.includes('Missing SUPABASE')) {
       json(res, 503, { error: '服务端未配置 Supabase' });
       return;
     }
     console.error('[api/submissions]', e);
-    json(res, 500, { error: '服务器错误' });
+    json(res, 500, { error: '服务器错误', details: msg });
   }
 }
