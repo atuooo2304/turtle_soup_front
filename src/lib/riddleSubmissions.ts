@@ -130,9 +130,16 @@ export async function addSubmission(
         soupType: input.soupType,
       }),
     });
-    const data = (await res.json()) as { error?: string; submission?: Record<string, unknown> };
+    const data = (await res.json()) as {
+      error?: string;
+      details?: string;
+      code?: string;
+      submission?: Record<string, unknown>;
+    };
     if (!res.ok) {
-      return { ok: false, error: data.error || `提交失败（${res.status}）` };
+      const base = data.error || `提交失败（${res.status}）`;
+      const hint = data.details ? `${base}：${data.details}` : base;
+      return { ok: false, error: hint };
     }
     const s = data.submission;
     if (!s || typeof s.id !== 'string') {

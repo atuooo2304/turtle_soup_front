@@ -11,6 +11,20 @@ function json(res: VercelResponse, status: number, body: unknown): void {
   res.status(status).setHeader('Content-Type', 'application/json; charset=utf-8').json(body);
 }
 
+/** Vercel Node 下 body 可能是 object / string / Buffer，需统一解析 */
+function parseJsonBody(req: VercelRequest): unknown {
+  const b = req.body as unknown;
+  if (b == null || b === '') return undefined;
+  if (typeof b === 'object' && !Buffer.isBuffer(b)) return b;
+  const s = Buffer.isBuffer(b) ? b.toString('utf8') : typeof b === 'string' ? b : String(b);
+  if (!s.trim()) return undefined;
+  try {
+    return JSON.parse(s) as unknown;
+  } catch {
+    return undefined;
+  }
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
   if (req.method === 'OPTIONS') {
     handleOptions(res);
@@ -21,11 +35,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
     return;
   }
   try {
-    const raw = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
-    const title = typeof raw?.title === 'string' ? raw.title.trim() : '';
-    const surface = typeof raw?.surface === 'string' ? raw.surface.trim() : '';
-    const bottom = typeof raw?.bottom === 'string' ? raw.bottom.trim() : '';
-    const soupType = typeof raw?.soupType === 'string' ? raw.soupType.trim() : '';
+    const raw = parseJsonBody(req);
+    if (raw == null || typeof raw !== 'object' || Array.isArray(raw)) {
+      json(res, 400, { error: '请求体须为 JSON 对象' });
+      return;
+    }
+    const r = raw as Record<string, unknown>;
+    const title = typeof r.title === 'string' ? r.title.trim() : '';
+    const surface = typeof r.surface === 'string' ? r.surface.trim() : '';
+    const bottom = typeof r.bottom === 'string' ? r.bottom.trim() : '';
+    const soupType = typeof r.soupType === 'string' ? r.soupType.trim() : '';
     if (!title || !surface || !bottom) {
       json(res, 400, { error: '标题、汤面、汤底均不能为空' });
       return;
@@ -53,7 +72,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
       .single();
     if (error) {
       console.error('[api/submissions]', error);
-      json(res, 500, { error: '保存失败' });
+      json(res, 500, {
+        error: '保存失败',
+        details: error.message,
+        code: error.code,
+      });
+      return;
+    }
+    if (!data) {
+      json(res, 500, { error: '保存失败', details: '未返回数据行' });
       return;
     }
     json(res, 201, {
