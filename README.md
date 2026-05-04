@@ -38,6 +38,14 @@ H5 在 **微信小程序 WebView** 内会将 `document.title` 置空，减少微
 
 「贡献新汤」在生产环境通过 **同源 `/api/submissions`** 写入 Supabase 表 `riddle_submissions`；**汤谱**由构建内 [`src/data/riddles.csv`](src/data/riddles.csv) 与 **`GET /api/riddles-published`**（`status = approved`）合并展示。管理员审核通过后，用户刷新 H5 即可看到新谜题（小程序 WebView 同理）。
 
+**上线前环境检查（与 Vercel 同项目）**
+
+1. `SUPABASE_URL`、`SUPABASE_SERVICE_ROLE_KEY`（**service_role**，勿用 anon）已配置。
+2. `ADMIN_SECRET` 已配置且仅你方知晓；管理接口请求头为 `Authorization: Bearer <ADMIN_SECRET>`。
+3. 不含内置审核网页：审核通过任意能发 HTTP 的客户端完成（下文脚本或手动 curl）。
+
+实施步骤：
+
 1. 在 Supabase 项目 **SQL Editor** 中执行 [`supabase/migrations/001_riddle_submissions.sql`](supabase/migrations/001_riddle_submissions.sql) 建表。
 2. 在 [Vercel](https://vercel.com/) 项目 **Environment Variables** 中配置（勿提交到仓库）：
    - `SUPABASE_URL`、`SUPABASE_SERVICE_ROLE_KEY`（**仅服务端**，用于 `api/` 函数）
@@ -45,7 +53,19 @@ H5 在 **微信小程序 WebView** 内会将 `document.title` 置空，减少微
 3. 将含 `api/` 的代码部署到 Vercel 后，在 [微信公众平台](https://mp.weixin.qq.com/) 为小程序配置 **request 合法域名**（与 H5 业务域名一致的生产域名），否则真机内无法请求 `/api`。
 4. **本地开发**：Vite 不提供 `/api`，请在 `.env.local` 设置 `VITE_API_BASE=https://你的生产域名`（无尾斜杠），使浏览器请求已部署的 Vercel API；或使用 `vercel dev` 同源联调。
 
-**管理员操作示例**（将 `ORIGIN` 换为生产根 URL，`ID` 换为待审投稿的 `uuid`）：
+**仓库脚本（推荐）**：[scripts/admin-review.sh](scripts/admin-review.sh)
+
+```bash
+chmod +x scripts/admin-review.sh   # 仅需一次
+export ORIGIN='https://你的生产根域名'    # 无尾斜杠
+export ADMIN_SECRET='与 Vercel 中 ADMIN_SECRET 一致'
+./scripts/admin-review.sh pending
+./scripts/admin-review.sh approve <投稿uuid>
+# ./scripts/admin-review.sh reject <uuid>      # 可选 NOTE='驳回原因'
+./scripts/admin-review.sh published            # 验收：公开接口返回的 JSON，含已通过谜题
+```
+
+**等价 curl**（将 `ORIGIN` 换为生产根 URL，`ID` 换为待审投稿的 `uuid`）：
 
 ```bash
 export ADMIN_SECRET='你的密钥'
@@ -55,7 +75,13 @@ curl -sS -X PATCH -H "Authorization: Bearer $ADMIN_SECRET" -H "Content-Type: app
 # 驳回：-d '{"status":"rejected","reviewer_note":"原因"}'
 ```
 
-`GET /api/admin/submissions?status=all` 可查看全部状态。投稿记录在客户端仍会写入 **localStorage** 作展示缓存；状态以服务端为准，可通过再次 PATCH 后让用户重新打开应用拉取汤谱列表。
+`GET /api/admin/submissions?status=all` 可查看全部状态（脚本命令：`./scripts/admin-review.sh all`）。
+
+**审核通过后让用户看到新题**：前端仅在进入页面时拉取一次 `GET /api/riddles-published`，用户需 **刷新 H5 / 重新打开小程序 WebView** 后汤谱才会更新。
+
+投稿记录在客户端仍会写入 **localStorage** 作展示缓存；状态以服务端为准，可通过再次 PATCH 后让用户重新打开应用拉取汤谱列表。
+
+**与 CSV**：已审核内容**不会自动写回** [`src/data/riddles.csv`](src/data/riddles.csv)；汤谱依赖 **静态 CSV + 已发布 API**。若需离线仅靠 CSV，须另行导出或脚本合并（不在当前自动化路径内）。
 
 小游戏（`game.json` 等）与本目录无关；若只做小程序，忽略仓库名中的 minigame 即可。
 
