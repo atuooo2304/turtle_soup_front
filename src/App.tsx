@@ -28,6 +28,8 @@ import {
 import { askHost, type CozeConversationState } from './lib/cozeHost';
 import { recordGameEnd, subscribeProgress, getProgress, type ProgressMap } from './lib/playerProgress';
 import { isSpeechToTextSupported, startSpeechToText, stopSpeechToText } from './lib/speechToText';
+import { isWeChatMiniProgramWebView } from './lib/wechatEnv';
+import { addSubmission, listSubmissions, type RiddleSubmission, type SoupType } from './lib/riddleSubmissions';
 
 function formatElapsed(ms: number): string {
   const totalSec = Math.max(0, Math.floor(ms / 1000));
@@ -363,6 +365,9 @@ const GameRoomView = ({
   const [isVoiceMode, setIsVoiceMode] = useState(false);
   const [speechListening, setSpeechListening] = useState(false);
   const [sttBanner, setSttBanner] = useState<string | null>(null);
+  const inMiniProgramWebView = useMemo(() => isWeChatMiniProgramWebView(), []);
+  const sttOk = isSpeechToTextSupported();
+  const voiceAllowed = sttOk && !inMiniProgramWebView;
   const maxAttempts = 20;
   const scrollRef = useRef<HTMLDivElement>(null);
   const gameStartedAtRef = useRef<number>(Date.now());
@@ -384,6 +389,10 @@ const GameRoomView = ({
       stopSpeechToText();
     };
   }, []);
+
+  useEffect(() => {
+    if (inMiniProgramWebView) setIsVoiceMode(false);
+  }, [inMiniProgramWebView]);
 
   const buildFinish = (
     success: boolean,
@@ -440,10 +449,8 @@ const GameRoomView = ({
     }
   };
 
-  const sttOk = isSpeechToTextSupported();
-
   const startHoldSpeech = () => {
-    if (!sttOk) return;
+    if (!voiceAllowed) return;
     setSttBanner(null);
     setSpeechListening(true);
     startSpeechToText({
@@ -462,7 +469,7 @@ const GameRoomView = ({
 
   return (
     <div className="flex flex-col h-screen bg-surface">
-      <header className="fixed top-0 w-full max-w-md flex justify-between items-center px-4 h-20 bg-surface border-b border-outline-variant/10 z-50">
+      <header className="fixed top-0 w-full max-w-md flex justify-between items-center px-4 min-h-20 pt-[env(safe-area-inset-top,0px)] pb-2 bg-surface border-b border-outline-variant/10 z-50">
         <div className="flex items-center gap-1">
           <button onClick={onBack} className="p-2 text-primary hover:bg-primary/10 transition-all">
             <ArrowLeft size={24} />
@@ -537,8 +544,13 @@ const GameRoomView = ({
         </div>
       </main>
 
-      <div className="fixed bottom-0 w-full max-w-md z-50 bg-surface border-t border-outline-variant/10 pt-2 pb-6 px-4 space-y-2">
-        {isVoiceMode && !sttOk && (
+      <div className="fixed bottom-0 w-full max-w-md z-50 bg-surface border-t border-outline-variant/10 pt-2 px-4 space-y-2 pb-[max(1.5rem,env(safe-area-inset-bottom,0px))]">
+        {inMiniProgramWebView && (
+          <p className="text-[10px] text-on-surface-variant leading-relaxed px-1">
+            小程序内请使用文字输入提问。
+          </p>
+        )}
+        {isVoiceMode && !sttOk && !inMiniProgramWebView && (
           <p className="text-[10px] text-on-surface-variant leading-relaxed px-1">
             当前环境不支持浏览器语音识别（微信小游戏需单独接入）。请点左侧键盘图标改用文字输入。
           </p>
@@ -546,26 +558,28 @@ const GameRoomView = ({
         {sttBanner && (
           <p className="text-[10px] text-primary px-1">{sttBanner}</p>
         )}
-        {isVoiceMode && sttOk && (
+        {isVoiceMode && voiceAllowed && (
           <p className="text-[10px] text-on-surface-variant px-1">按住麦克风说话，松开后识别为文字填入框内，再点发送。</p>
         )}
         <div className="flex items-center gap-3">
-          <button 
-            type="button"
-            onClick={() => {
-              endHoldSpeech();
-              setIsVoiceMode(!isVoiceMode);
-              setSttBanner(null);
-            }}
-            className="w-12 h-12 shrink-0 flex items-center justify-center border border-primary/30 bg-surface-high text-primary hover:bg-surface-highest active:scale-95 transition-all"
-          >
-            {isVoiceMode ? <Keyboard size={24} /> : <Mic size={24} />}
-          </button>
+          {!inMiniProgramWebView && (
+            <button 
+              type="button"
+              onClick={() => {
+                endHoldSpeech();
+                setIsVoiceMode(!isVoiceMode);
+                setSttBanner(null);
+              }}
+              className="w-12 h-12 shrink-0 flex items-center justify-center border border-primary/30 bg-surface-high text-primary hover:bg-surface-highest active:scale-95 transition-all"
+            >
+              {isVoiceMode ? <Keyboard size={24} /> : <Mic size={24} />}
+            </button>
+          )}
           <div className="flex-grow flex items-center bg-surface-low border border-outline-variant/30 shadow-2xl overflow-hidden min-h-[3rem]">
-            {isVoiceMode ? (
+            {isVoiceMode && voiceAllowed ? (
               <div
                 className="flex-grow flex flex-col items-stretch justify-center gap-2 py-2 px-2 min-h-[3rem]"
-                onPointerLeave={sttOk ? endHoldSpeech : undefined}
+                onPointerLeave={voiceAllowed ? endHoldSpeech : undefined}
               >
                 <input
                   type="text"
@@ -580,12 +594,12 @@ const GameRoomView = ({
                     <motion.div
                       key={i}
                       animate={
-                        speechListening && sttOk
+                        speechListening && voiceAllowed
                           ? { height: [8, 24, 12, 28, 10] }
                           : { height: 8 }
                       }
                       transition={{
-                        repeat: speechListening && sttOk ? Infinity : 0,
+                        repeat: speechListening && voiceAllowed ? Infinity : 0,
                         duration: 0.8,
                         delay: i * 0.1,
                         ease: 'easeInOut',
@@ -594,7 +608,7 @@ const GameRoomView = ({
                     />
                   ))}
                 </div>
-                {sttOk && (
+                {voiceAllowed && (
                   <button
                     type="button"
                     className="py-2 text-[10px] tracking-widest text-primary border border-primary/30 bg-surface-high select-none touch-none"
@@ -869,56 +883,104 @@ const RulesView = ({ onBack }: { onBack: () => void }) => {
   );
 };
 
-const SubmitView = ({ onBack }: { onBack: () => void }) => {
-  const [selectedType, setSelectedType] = useState('清汤');
+const SubmitView = ({
+  onBack,
+  onSubmitted,
+}: {
+  onBack: () => void;
+  onSubmitted?: () => void;
+}) => {
+  const [title, setTitle] = useState('');
+  const [surface, setSurface] = useState('');
+  const [bottom, setBottom] = useState('');
+  const [selectedType, setSelectedType] = useState<SoupType>('清汤');
+  const [formError, setFormError] = useState<string | null>(null);
+  const [formSuccess, setFormSuccess] = useState<string | null>(null);
+
+  const handleSubmit = () => {
+    setFormError(null);
+    setFormSuccess(null);
+    const result = addSubmission({
+      title,
+      surface,
+      bottom,
+      soupType: selectedType,
+    });
+    if (result.ok === false) {
+      setFormError(result.error);
+      return;
+    }
+    setFormSuccess('已保存到本机投稿记录');
+    setTitle('');
+    setSurface('');
+    setBottom('');
+    setSelectedType('清汤');
+    window.setTimeout(() => {
+      onSubmitted?.();
+    }, 1200);
+  };
 
   return (
-    <div className="p-6 space-y-12">
+    <div className="p-6 space-y-12 pb-28">
       <header className="flex items-center gap-4">
-        <button onClick={onBack} className="text-primary">
+        <button type="button" onClick={onBack} className="text-primary">
           <ArrowLeft size={24} />
         </button>
         <h1 className="text-xl font-bold text-on-surface tracking-widest uppercase font-serif">贡献新汤</h1>
       </header>
-      
+
+      {formError && (
+        <p className="text-sm text-tertiary border border-tertiary/30 bg-tertiary/10 px-4 py-3">{formError}</p>
+      )}
+      {formSuccess && (
+        <p className="text-sm text-secondary border border-secondary/30 bg-secondary/10 px-4 py-3">{formSuccess}</p>
+      )}
+
       <div className="space-y-8">
         <div className="space-y-2">
           <label className="text-xs uppercase tracking-widest text-primary/60">谜题标题</label>
-          <input 
-            type="text" 
-            placeholder="此处刻下名字..." 
-            className="w-full bg-surface-low border border-outline-variant/30 p-4 font-serif text-lg focus:ring-1 focus:ring-primary/50"
+          <input
+            type="text"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="此处刻下名字..."
+            className="w-full bg-surface-low border border-outline-variant/30 p-4 font-serif text-lg focus:ring-1 focus:ring-primary/50 text-on-surface"
           />
         </div>
-        
+
         <div className="space-y-2">
           <label className="text-xs uppercase tracking-widest text-primary/60">汤面描述</label>
-          <textarea 
+          <textarea
             rows={4}
-            placeholder="写下那令人不寒而栗的开端..." 
-            className="w-full bg-surface-low border border-outline-variant/30 p-4 font-serif text-base focus:ring-1 focus:ring-primary/50"
+            value={surface}
+            onChange={(e) => setSurface(e.target.value)}
+            placeholder="写下那令人不寒而栗的开端..."
+            className="w-full bg-surface-low border border-outline-variant/30 p-4 font-serif text-base focus:ring-1 focus:ring-primary/50 text-on-surface"
           />
         </div>
 
         <div className="space-y-2">
           <label className="text-xs uppercase tracking-widest text-primary/60">汤底答案</label>
-          <textarea 
+          <textarea
             rows={4}
-            placeholder="揭示背后隐藏的残酷真相..." 
-            className="w-full bg-surface-low border border-outline-variant/30 p-4 font-serif text-base focus:ring-1 focus:ring-primary/50"
+            value={bottom}
+            onChange={(e) => setBottom(e.target.value)}
+            placeholder="揭示背后隐藏的残酷真相..."
+            className="w-full bg-surface-low border border-outline-variant/30 p-4 font-serif text-base focus:ring-1 focus:ring-primary/50 text-on-surface"
           />
         </div>
 
         <div className="space-y-2">
           <label className="text-xs uppercase tracking-widest text-primary/60">汤底浓度</label>
           <div className="grid grid-cols-3 gap-2">
-            {['清汤', '红汤', '黑汤'].map(t => (
-              <button 
-                key={t} 
+            {(['清汤', '红汤', '黑汤'] as const).map((t) => (
+              <button
+                key={t}
+                type="button"
                 onClick={() => setSelectedType(t)}
                 className={`p-4 flex flex-col items-center gap-2 border transition-all ${
-                  selectedType === t 
-                    ? 'bg-primary text-surface border-primary shadow-lg shadow-primary/20' 
+                  selectedType === t
+                    ? 'bg-primary text-surface border-primary shadow-lg shadow-primary/20'
                     : 'bg-surface-low border-outline-variant/20 hover:border-primary/50'
                 }`}
               >
@@ -931,99 +993,135 @@ const SubmitView = ({ onBack }: { onBack: () => void }) => {
           </div>
         </div>
 
-        <button className="w-full py-5 bg-primary text-surface font-bold tracking-[0.2em] uppercase text-sm flex items-center justify-center gap-2 hover:brightness-110 transition-all">
+        <button
+          type="button"
+          onClick={handleSubmit}
+          className="w-full py-5 bg-primary text-surface font-bold tracking-[0.2em] uppercase text-sm flex items-center justify-center gap-2 hover:brightness-110 transition-all"
+        >
           封印并提交 <FileText size={18} />
         </button>
+        <p className="text-[10px] text-on-surface-variant/70 leading-relaxed">
+          投稿保存在本机浏览器（localStorage），清除微信或站点数据会丢失；后续可再接服务端审核。
+        </p>
       </div>
     </div>
   );
 };
 
-const HistoryView = ({ onBack }: { onBack: () => void }) => {
-  const [selectedItem, setSelectedItem] = useState<any>(null);
+function formatSubmissionDate(ts: number): string {
+  if (!ts) return '—';
+  try {
+    return new Date(ts).toLocaleString('zh-CN', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } catch {
+    return '—';
+  }
+}
 
-  const submissions = [
-    { 
-      id: '802', 
-      title: '被诅咒的午餐盒', 
-      date: '2023.10.12', 
-      status: '已收录',
-      surface: '男人每天中午都会打开一个红色的午餐盒，但他从来不吃里面的东西。直到有一天，他把午餐盒扔进了大海。',
-      base: '午餐盒里装的是他去世妻子的骨灰，他每天带在身边是为了陪伴。扔进大海是因为他终于决定放下过去。'
-    },
-    { 
-      id: '819', 
-      title: '深海里的敲击声', 
-      date: '2023.11.04', 
-      status: '审核中',
-      surface: '潜水员在深海听到有节奏的敲击声，但他环顾四周，方圆百里只有他一个人。',
-      base: '敲击声其实来自于他自己的氧气瓶，因为阀门松动在水流中撞击。'
-    },
-    { 
-      id: '744', 
-      title: '消失的红雨伞', 
-      date: '2023.09.28', 
-      status: '未通过',
-      surface: '雨天，女孩撑着红雨伞走过街道，转角后雨伞消失了，女孩也消失了。',
-      base: '这是一个魔术表演的意外，红雨伞是道具，女孩通过暗门离开了，但暗门卡住导致她被困。'
-    }
-  ];
+function submissionStatusClass(status: RiddleSubmission['status']): string {
+  if (status === '待审核') return 'text-secondary';
+  return 'text-on-surface-variant';
+}
+
+const HistoryView = ({
+  onBack,
+  onGoSubmit,
+}: {
+  onBack: () => void;
+  onGoSubmit: () => void;
+}) => {
+  const [items, setItems] = useState<RiddleSubmission[]>(() => listSubmissions());
+  const [selectedItem, setSelectedItem] = useState<RiddleSubmission | null>(null);
+
+  useEffect(() => {
+    setItems(listSubmissions());
+  }, []);
 
   return (
-    <div className="p-6 space-y-12 bg-surface min-h-screen">
+    <div className="p-6 space-y-12 bg-surface min-h-screen pb-28">
       <header className="flex items-center gap-4">
-        <button onClick={onBack} className="text-primary">
+        <button type="button" onClick={onBack} className="text-primary">
           <ArrowLeft size={24} />
         </button>
         <h1 className="text-xl font-bold text-on-surface tracking-widest uppercase font-serif">投稿记录</h1>
       </header>
 
-      <div className="space-y-0 border-y border-outline-variant/20">
-        {submissions.map(item => (
-          <div 
-            key={item.id} 
-            onClick={() => setSelectedItem(item)}
-            className="group relative py-8 border-b border-outline-variant/10 hover:bg-surface-low transition-colors cursor-pointer"
+      {items.length === 0 ? (
+        <div className="space-y-6 py-12 text-center border border-outline-variant/20 bg-surface-low/50 px-6">
+          <p className="text-on-surface-variant font-serif text-lg">暂无本机投稿</p>
+          <p className="text-sm text-on-surface-variant/80">在「贡献新汤」填写并提交后，会出现在这里。</p>
+          <button
+            type="button"
+            onClick={onGoSubmit}
+            className="w-full max-w-xs mx-auto py-4 bg-primary text-surface font-bold tracking-widest uppercase text-xs hover:brightness-110 transition-all"
           >
-            <div className="flex justify-between items-end">
-              <div className="space-y-2">
-                <span className="text-[10px] text-primary/60 tracking-widest uppercase">词条 #{item.id}</span>
-                <h2 className="text-2xl font-serif leading-tight">{item.title}</h2>
-                <p className="text-sm opacity-50">提交于：{item.date}</p>
-              </div>
-              <div className="flex flex-col items-end">
-                <div className={`font-serif text-lg italic ${item.status === '已收录' ? 'shimmer-gold font-bold' : item.status === '未通过' ? 'text-tertiary' : 'text-secondary'}`}>
-                  {item.status}
+            去贡献新汤
+          </button>
+        </div>
+      ) : (
+        <div className="space-y-0 border-y border-outline-variant/20">
+          {items.map((item) => (
+            <div
+              key={item.id}
+              role="button"
+              tabIndex={0}
+              onClick={() => setSelectedItem(item)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  setSelectedItem(item);
+                }
+              }}
+              className="group relative py-8 border-b border-outline-variant/10 hover:bg-surface-low transition-colors cursor-pointer"
+            >
+              <div className="flex justify-between items-end gap-4">
+                <div className="space-y-2 min-w-0 text-left">
+                  <span className="text-[10px] text-primary/60 tracking-widest uppercase block truncate">
+                    投稿 #{item.id.slice(0, 12)}…
+                  </span>
+                  <h2 className="text-2xl font-serif leading-tight">{item.title}</h2>
+                  <p className="text-sm opacity-50">提交于：{formatSubmissionDate(item.submittedAt)}</p>
+                  <p className="text-[10px] text-on-surface-variant/70">浓度：{item.soupType}</p>
+                </div>
+                <div className="flex flex-col items-end shrink-0">
+                  <div className={`font-serif text-lg italic ${submissionStatusClass(item.status)}`}>{item.status}</div>
                 </div>
               </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
 
       <AnimatePresence>
         {selectedItem && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setSelectedItem(null)}
               className="absolute inset-0 bg-surface/95 backdrop-blur-md"
             />
-            <motion.div 
+            <motion.div
               initial={{ scale: 0.9, opacity: 0, y: 20 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.9, opacity: 0, y: 20 }}
-              className="relative w-full max-w-md bg-surface-low border border-outline-variant/20 shadow-2xl overflow-hidden"
+              className="relative w-full max-w-md bg-surface-low border border-outline-variant/20 shadow-2xl overflow-hidden max-h-[90vh] overflow-y-auto"
             >
               <div className="p-8 space-y-8">
-                <div className="flex justify-between items-start">
-                  <div className="space-y-1">
-                    <span className="text-[10px] uppercase tracking-widest text-primary/60">投稿详情 #{selectedItem.id}</span>
-                    <h2 className="text-3xl font-serif text-on-surface">{selectedItem.title}</h2>
+                <div className="flex justify-between items-start gap-4">
+                  <div className="space-y-1 min-w-0">
+                    <span className="text-[10px] uppercase tracking-widest text-primary/60">投稿详情</span>
+                    <h2 className="text-3xl font-serif text-on-surface break-words">{selectedItem.title}</h2>
                   </div>
-                  <div className={`px-3 py-1 text-xs font-bold tracking-widest ${selectedItem.status === '已收录' ? 'bg-primary/20 text-primary' : selectedItem.status === '未通过' ? 'bg-tertiary/20 text-tertiary' : 'bg-secondary/20 text-secondary'}`}>
+                  <div
+                    className={`px-3 py-1 text-xs font-bold tracking-widest shrink-0 ${selectedItem.status === '待审核' ? 'bg-secondary/20 text-secondary' : 'bg-on-surface-variant/20 text-on-surface-variant'}`}
+                  >
                     {selectedItem.status}
                   </div>
                 </div>
@@ -1037,13 +1135,12 @@ const HistoryView = ({ onBack }: { onBack: () => void }) => {
                   </div>
                   <div className="space-y-2">
                     <h4 className="text-[10px] uppercase tracking-widest text-primary/40">汤底 (Base)</h4>
-                    <p className="font-serif text-base leading-relaxed text-on-surface">
-                      {selectedItem.base}
-                    </p>
+                    <p className="font-serif text-base leading-relaxed text-on-surface whitespace-pre-wrap">{selectedItem.bottom}</p>
                   </div>
                 </div>
 
-                <button 
+                <button
+                  type="button"
                   onClick={() => setSelectedItem(null)}
                   className="w-full py-4 bg-surface-high text-on-surface font-bold tracking-widest uppercase text-xs hover:bg-surface-highest transition-colors"
                 >
@@ -1138,11 +1235,17 @@ export default function App() {
           </motion.div>
         ) : view === 'history' ? (
           <motion.div key="history" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <HistoryView onBack={() => setView('profile')} />
+            <HistoryView
+              onBack={() => setView('profile')}
+              onGoSubmit={() => handleNavigate('submit')}
+            />
           </motion.div>
         ) : view === 'submit' ? (
           <motion.div key="submit" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <SubmitView onBack={() => setView('profile')} />
+            <SubmitView
+              onBack={() => setView('profile')}
+              onSubmitted={() => setView('history')}
+            />
           </motion.div>
         ) : (
           <motion.div key="layout" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
