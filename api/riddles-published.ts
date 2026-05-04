@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getSupabaseAdmin } from './_lib/supabase';
-import { dbRowToRiddle, type DbSubmission } from './_lib/riddleMap';
-import { applyCors, handleOptions } from './_lib/cors';
+import { getSupabaseAdmin } from './_lib/supabase.js';
+import { dbRowToRiddle, type DbSubmission } from './_lib/riddleMap.js';
+import { applyCors, handleOptions } from './_lib/cors.js';
 
 function json(res: VercelResponse, status: number, body: unknown): void {
   applyCors(res);

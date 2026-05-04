@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getSupabaseAdmin } from '../../_lib/supabase';
-import { applyCors, handleOptions } from '../../_lib/cors';
-import { parseJsonBody } from '../../_lib/parseJsonBody';
+import { getSupabaseAdmin } from '../../_lib/supabase.js';
+import { applyCors, handleOptions } from '../../_lib/cors.js';
+import { parseJsonBody } from '../../_lib/parseJsonBody.js';
 
 function json(res: VercelResponse, status: number, body: unknown): void {
   applyCors(res);

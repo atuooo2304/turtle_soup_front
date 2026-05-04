@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getSupabaseAdmin } from './_lib/supabase';
-import { applyCors, handleOptions } from './_lib/cors';
-import { parseJsonBody } from './_lib/parseJsonBody';
+import { getSupabaseAdmin } from './_lib/supabase.js';
+import { applyCors, handleOptions } from './_lib/cors.js';
+import { parseJsonBody } from './_lib/parseJsonBody.js';
 
 const SOUP = new Set(['清汤', '红汤', '黑汤']);
 const MAX_TITLE = 200;
