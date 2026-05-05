@@ -1,5 +1,6 @@
 import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
+import { Analytics } from '@vercel/analytics/react';
 import App from './App.tsx';
 import {exchangeTicketFromUrl} from './lib/authSession';
 import {isWeChatMiniProgramWebView} from './lib/wechatEnv';
@@ -12,7 +13,10 @@ if (typeof document !== 'undefined') {
 void exchangeTicketFromUrl().then(() => {
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
-      <App />
+      <>
+        <App />
+        <Analytics />
+      </>
     </StrictMode>,
   );
 });
