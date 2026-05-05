@@ -1,9 +1,12 @@
 /**
  * 扣子（Coze）智能体作为海龟汤主持人。
  * 环境变量与根目录 `.env.example` 对齐：`COZE_TOKEN`、`COZE_BOT_ID`、`COZE_REGION` / `COZE_BASE_URL`、`COZE_USER_ID`。
+ * 微信小程序登录后，`getCozeRuntimeUserId()` 优先于环境变量，实现对局按用户隔离。
  * 开发环境通过 Vite 代理 `/coze-api` 转发到当前配置的 API 域名，避免浏览器 CORS。
  * @see https://www.coze.cn/open/docs/developer_guides/chat_v3
  */
+
+import { getCozeRuntimeUserId } from './authSession';
 
 export type CozeConversationState = {
   conversationId?: string;
@@ -64,8 +67,11 @@ export async function askHost(
 ): Promise<string> {
   const pat = (import.meta.env.COZE_TOKEN as string | undefined)?.trim();
   const botId = (import.meta.env.COZE_BOT_ID as string | undefined)?.trim();
+  const runtimeId = getCozeRuntimeUserId();
   const userId =
-    (import.meta.env.COZE_USER_ID as string | undefined)?.trim() || 'turtle-soup-guest';
+    runtimeId?.trim() ||
+    (import.meta.env.COZE_USER_ID as string | undefined)?.trim() ||
+    'turtle-soup-guest';
 
   if (!pat || !botId) {
     console.warn('[Coze] 请在 .env.local 中配置 COZE_TOKEN 与 COZE_BOT_ID（参见 .env.example）');

@@ -1,4 +1,5 @@
 import { apiUrl, canUseRemoteApi } from './apiBase';
+import { authHeadersAsync } from './authSession';
 
 const STORAGE_KEY = 'turtle-soup-riddle-submissions';
 
@@ -120,9 +121,13 @@ export async function addSubmission(
     };
   }
   try {
+    const auth = await authHeadersAsync();
     const res = await fetch(base, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...auth,
+      },
       body: JSON.stringify({
         title,
         surface,
@@ -133,12 +138,14 @@ export async function addSubmission(
     const data = (await res.json()) as {
       error?: string;
       details?: string;
+      hint?: string;
       code?: string;
       submission?: Record<string, unknown>;
     };
     if (!res.ok) {
       const base = data.error || `提交失败（${res.status}）`;
-      const hint = data.details ? `${base}：${data.details}` : base;
+      const extra = data.details || data.hint;
+      const hint = extra ? `${base}：${extra}` : base;
       return { ok: false, error: hint };
     }
     const s = data.submission;

@@ -1,6 +1,8 @@
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
+  readonly VITE_SUPABASE_URL?: string;
+  readonly VITE_SUPABASE_ANON_KEY?: string;
   /** Coze PAT，与 .env.example 一致 */
   readonly COZE_TOKEN?: string;
   readonly COZE_BOT_ID?: string;

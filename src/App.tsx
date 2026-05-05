@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   User, 
@@ -16,7 +16,8 @@ import {
   RefreshCw,
   FileText,
   X,
-  Keyboard
+  Keyboard,
+  Menu,
 } from 'lucide-react';
 import {
   riddles,
@@ -39,6 +40,14 @@ import {
   type SoupType,
   type SubmissionStatus,
 } from './lib/riddleSubmissions';
+import { LoginModal } from './components/LoginModal';
+import {
+  clearAuthSession,
+  clearCozeRuntimeUserId,
+  getWechatAccessToken,
+  setCozeRuntimeUserIdFromSupabase,
+} from './lib/authSession';
+import { getSupabaseBrowser, isSupabaseBrowserConfigured } from './lib/supabaseBrowser';
 
 function formatElapsed(ms: number): string {
   const totalSec = Math.max(0, Math.floor(ms / 1000));
@@ -90,6 +99,13 @@ function failureGradeSubtitle(finishReason: 'give_up' | 'out_of_turns', count: n
 // --- Types ---
 type View = 'home' | 'game' | 'profile' | 'rules' | 'history' | 'submit' | 'developing';
 
+/** 主内容区与顶栏同宽，大屏适当加宽 */
+const SHELL_MAX =
+  'w-full max-w-md lg:max-w-3xl xl:max-w-4xl mx-auto';
+
+const SHELL_INNER =
+  'w-full max-w-md lg:max-w-3xl xl:max-w-4xl';
+
 interface Message {
   id: string;
   role: 'user' | 'host';
@@ -98,37 +114,88 @@ interface Message {
 
 // --- Components ---
 
-const Layout = ({ children, activeTab, onTabChange }: { children: React.ReactNode, activeTab: View, onTabChange: (v: View) => void }) => {
+const Layout = ({
+  children,
+  activeTab,
+  onTabChange,
+}: {
+  children: React.ReactNode;
+  activeTab: View;
+  onTabChange: (v: View) => void | Promise<void>;
+}) => {
+  const [drawerOpen, setDrawerOpen] = useState(false);
+
+  const linkClass = (tab: View) =>
+    `text-xs uppercase tracking-widest font-bold transition-colors ${
+      activeTab === tab ? 'text-primary' : 'text-on-surface/40 hover:text-on-surface/70'
+    }`;
+
+  const go = (v: View) => {
+    void onTabChange(v);
+    setDrawerOpen(false);
+  };
+
   return (
-    <div className="max-w-md mx-auto min-h-screen flex flex-col bg-surface relative">
-      <div className="flex-grow overflow-y-auto no-scrollbar pb-24">
-        {children}
-      </div>
-      
-      {/* Bottom Nav */}
-      <nav className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md flex justify-around items-center h-20 bg-surface border-t-4 border-surface-high z-50">
-        <button 
-          onClick={() => onTabChange('home')}
-          className={`flex flex-col items-center gap-1 transition-colors ${activeTab === 'home' ? 'text-primary' : 'text-on-surface/40'}`}
-        >
-          <HomeNavIcon size={24} fill={activeTab === 'home' ? 'currentColor' : 'none'} />
-          <span className="text-[10px] uppercase tracking-widest font-bold">汤谱</span>
-        </button>
-        <button 
-          onClick={() => onTabChange('developing')}
-          className={`flex flex-col items-center gap-1 transition-colors ${activeTab === 'developing' ? 'text-primary' : 'text-on-surface/40'}`}
-        >
-          <TrendingUp size={24} />
-          <span className="text-[10px] uppercase tracking-widest font-bold">每日一汤</span>
-        </button>
-        <button 
-          onClick={() => onTabChange('profile')}
-          className={`flex flex-col items-center gap-1 transition-colors ${activeTab === 'profile' ? 'text-primary' : 'text-on-surface/40'}`}
-        >
-          <User size={24} fill={activeTab === 'profile' ? 'currentColor' : 'none'} />
-          <span className="text-[10px] uppercase tracking-widest font-bold">个人中心</span>
-        </button>
-      </nav>
+    <div className="min-h-screen flex flex-col bg-surface relative">
+      <header className="sticky top-0 z-50 border-b border-outline-variant/10 bg-surface/95 backdrop-blur-sm">
+        <div className={`flex items-center justify-between gap-3 px-4 py-3 ${SHELL_MAX}`}>
+          <button
+            type="button"
+            onClick={() => go('home')}
+            className="font-serif text-lg text-primary tracking-[0.2em] shrink-0"
+          >
+            海龟汤
+          </button>
+          <nav className="hidden md:flex items-center gap-10">
+            <button type="button" onClick={() => go('home')} className={linkClass('home')}>
+              汤谱
+            </button>
+            <button type="button" onClick={() => go('developing')} className={linkClass('developing')}>
+              每日一汤
+            </button>
+            <button type="button" onClick={() => go('profile')} className={linkClass('profile')}>
+              个人中心
+            </button>
+          </nav>
+          <button
+            type="button"
+            className="md:hidden p-2 text-on-surface -mr-2"
+            onClick={() => setDrawerOpen(true)}
+            aria-label="打开菜单"
+          >
+            <Menu size={22} />
+          </button>
+        </div>
+      </header>
+
+      {drawerOpen && (
+        <div className="md:hidden fixed inset-0 z-[120]">
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/60"
+            aria-label="关闭菜单"
+            onClick={() => setDrawerOpen(false)}
+          />
+          <div className="absolute top-0 right-0 bottom-0 flex w-[min(85vw,280px)] flex-col gap-1 border-l border-outline-variant/20 bg-surface p-6 shadow-xl">
+            <p className="mb-4 font-serif text-sm text-on-surface-variant">导航</p>
+            <button type="button" onClick={() => go('home')} className={`py-3 text-left ${linkClass('home')}`}>
+              汤谱
+            </button>
+            <button
+              type="button"
+              onClick={() => go('developing')}
+              className={`py-3 text-left ${linkClass('developing')}`}
+            >
+              每日一汤
+            </button>
+            <button type="button" onClick={() => go('profile')} className={`py-3 text-left ${linkClass('profile')}`}>
+              个人中心
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className={`flex-grow overflow-y-auto no-scrollbar pb-12 ${SHELL_MAX}`}>{children}</div>
     </div>
   );
 };
@@ -326,7 +393,7 @@ const PuzzleDetailModal = ({ riddle, onClose, onStart }: { riddle: Riddle; onClo
       <motion.div 
         initial={{ y: 20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
-        className="relative w-full max-w-md bg-surface-low shadow-2xl ring-1 ring-outline-variant/30 flex flex-col overflow-hidden"
+        className={`relative ${SHELL_INNER} bg-surface-low shadow-2xl ring-1 ring-outline-variant/30 flex flex-col overflow-hidden`}
       >
         <div className="p-8 md:p-12 overflow-y-auto max-h-[80vh]">
           <div className="flex justify-end mb-4">
@@ -480,7 +547,7 @@ const GameRoomView = ({
 
   return (
     <div className="flex flex-col h-screen bg-surface">
-      <header className="fixed top-0 w-full max-w-md flex justify-between items-center px-4 min-h-[3.25rem] pt-[env(safe-area-inset-top,0px)] pb-1 bg-surface border-b border-outline-variant/10 z-50">
+      <header className={`fixed top-0 left-1/2 -translate-x-1/2 ${SHELL_INNER} flex justify-between items-center px-4 min-h-[3.25rem] pt-[env(safe-area-inset-top,0px)] pb-1 bg-surface border-b border-outline-variant/10 z-50`}>
         <div className="flex items-center gap-1">
           <button onClick={onBack} className="p-2 text-primary hover:bg-primary/10 transition-all">
             <ArrowLeft size={24} />
@@ -557,7 +624,7 @@ const GameRoomView = ({
         </div>
       </main>
 
-      <div className="fixed bottom-0 w-full max-w-md z-50 bg-surface border-t border-outline-variant/10 pt-2 px-4 space-y-2 pb-[max(1.5rem,env(safe-area-inset-bottom,0px))]">
+      <div className={`fixed bottom-0 left-1/2 -translate-x-1/2 ${SHELL_INNER} z-50 bg-surface border-t border-outline-variant/10 pt-2 px-4 space-y-2 pb-[max(1.5rem,env(safe-area-inset-bottom,0px))]`}>
         {inMiniProgramWebView && (
           <p className="text-[10px] text-on-surface-variant leading-relaxed px-1">
             小程序内请使用文字输入提问。
@@ -689,7 +756,7 @@ const SettlementView = ({
       <motion.div 
         initial={{ scale: 0.9, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
-        className="w-full max-w-md bg-surface border border-outline-variant/30 relative overflow-hidden flex flex-col max-h-[90vh]"
+        className={`${SHELL_INNER} bg-surface border border-outline-variant/30 relative overflow-hidden flex flex-col max-h-[90vh]`}
       >
         <div className="absolute inset-0 bg-gradient-radial from-primary/5 to-transparent pointer-events-none opacity-60"></div>
         <div className="absolute top-4 left-4 z-10">
@@ -782,10 +849,18 @@ const SettlementView = ({
   );
 };
 
-const ProfileView = ({ onNavigate }: { onNavigate: (v: View) => void }) => {
+const ProfileView = ({
+  onNavigate,
+  userEmail,
+  onLogout,
+}: {
+  onNavigate: (v: View) => void | Promise<void>;
+  userEmail: string | null;
+  onLogout: () => void | Promise<void>;
+}) => {
   return (
     <div className="p-6 space-y-12">
-      <section className="mt-12">
+      <section className="mt-8 md:mt-12">
         <div className="bg-surface-low p-6 flex items-center gap-6">
           <div className="w-20 h-20 bg-surface-highest relative flex items-center justify-center overflow-hidden">
             <img 
@@ -795,8 +870,22 @@ const ProfileView = ({ onNavigate }: { onNavigate: (v: View) => void }) => {
               referrerPolicy="no-referrer"
             />
           </div>
-          <div className="flex-1">
-            <h2 className="font-serif text-2xl font-bold tracking-tight">炼金术士 #0812</h2>
+          <div className="flex-1 min-w-0">
+            <h2 className="font-serif text-2xl font-bold tracking-tight truncate">
+              {userEmail ? userEmail : '访客'}
+            </h2>
+            {!userEmail && (
+              <p className="mt-1 text-xs text-on-surface-variant">登录后可提交谜题（邮箱 Magic Link）</p>
+            )}
+            {userEmail && (
+              <button
+                type="button"
+                onClick={() => void onLogout()}
+                className="mt-2 text-xs uppercase tracking-widest text-primary/90 hover:text-primary"
+              >
+                退出登录
+              </button>
+            )}
           </div>
         </div>
       </section>
@@ -805,7 +894,7 @@ const ProfileView = ({ onNavigate }: { onNavigate: (v: View) => void }) => {
         <h3 className="text-[11px] uppercase tracking-[0.2em] opacity-50 ml-2">投稿</h3>
         <div className="space-y-1">
           <button 
-            onClick={() => onNavigate('submit')}
+            onClick={() => void onNavigate('submit')}
             className="w-full bg-surface-low p-5 flex items-center justify-between group hover:bg-surface-high transition-colors"
           >
             <span className="font-serif text-lg italic">提交谜题</span>
@@ -1146,7 +1235,7 @@ const HistoryView = ({
               initial={{ scale: 0.9, opacity: 0, y: 20 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.9, opacity: 0, y: 20 }}
-              className="relative w-full max-w-md bg-surface-low border border-outline-variant/20 shadow-2xl overflow-hidden max-h-[90vh] overflow-y-auto"
+              className={`relative ${SHELL_INNER} bg-surface-low border border-outline-variant/20 shadow-2xl overflow-hidden max-h-[90vh] overflow-y-auto`}
             >
               <div className="p-8 space-y-8">
                 <div className="flex justify-between items-start gap-4">
@@ -1238,12 +1327,81 @@ export default function App() {
     riddleId: string;
   } | null>(null);
 
-  const handleNavigate = (v: View) => {
-    if (v === 'developing' || v === 'submit' || v === 'history' || v === 'rules') {
-      setLastView(view);
-    }
-    setView(v);
-  };
+  const [loginModalOpen, setLoginModalOpen] = useState(false);
+  const [authEmail, setAuthEmail] = useState<string | null>(null);
+  const pendingNavAfterLoginRef = useRef<View | null>(null);
+
+  useEffect(() => {
+    if (!isSupabaseBrowserConfigured()) return undefined;
+    let cancelled = false;
+    const sb = getSupabaseBrowser();
+
+    const applySession = (session: import('@supabase/supabase-js').Session | null) => {
+      if (cancelled) return;
+      if (session?.user) {
+        setAuthEmail(session.user.email ?? null);
+        setCozeRuntimeUserIdFromSupabase(session.user.id);
+        const pending = pendingNavAfterLoginRef.current;
+        if (pending) {
+          setView(pending);
+          pendingNavAfterLoginRef.current = null;
+          setLoginModalOpen(false);
+        }
+      } else {
+        setAuthEmail(null);
+        if (!getWechatAccessToken()) {
+          clearCozeRuntimeUserId();
+        }
+      }
+    };
+
+    sb.auth.getSession().then(({ data }) => applySession(data.session));
+    const {
+      data: { subscription },
+    } = sb.auth.onAuthStateChange((_event, session) => {
+      applySession(session);
+    });
+    return () => {
+      cancelled = true;
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  const navigateTo = useCallback(
+    async (v: View) => {
+      if (v === 'developing' || v === 'submit' || v === 'history' || v === 'rules') {
+        setLastView(view);
+      }
+      if (v === 'submit') {
+        if (!isSupabaseBrowserConfigured()) {
+          pendingNavAfterLoginRef.current = 'submit';
+          setLoginModalOpen(true);
+          return;
+        }
+        try {
+          const { data } = await getSupabaseBrowser().auth.getSession();
+          if (!data.session) {
+            pendingNavAfterLoginRef.current = 'submit';
+            setLoginModalOpen(true);
+            return;
+          }
+        } catch {
+          pendingNavAfterLoginRef.current = 'submit';
+          setLoginModalOpen(true);
+          return;
+        }
+        setView('submit');
+        return;
+      }
+      setView(v);
+    },
+    [view],
+  );
+
+  const handleLogout = useCallback(async () => {
+    await clearAuthSession();
+    setAuthEmail(null);
+  }, []);
 
   const handleSelectRiddle = (r: Riddle) => {
     setSelectedRiddle(r);
@@ -1299,7 +1457,7 @@ export default function App() {
           <motion.div key="history" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <HistoryView
               onBack={() => setView('profile')}
-              onGoSubmit={() => handleNavigate('submit')}
+              onGoSubmit={() => void navigateTo('submit')}
             />
           </motion.div>
         ) : view === 'submit' ? (
@@ -1311,7 +1469,7 @@ export default function App() {
           </motion.div>
         ) : (
           <motion.div key="layout" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <Layout activeTab={view} onTabChange={handleNavigate}>
+            <Layout activeTab={view} onTabChange={navigateTo}>
               {view === 'home' && (
                 <HomeView
                   onSelectRiddle={handleSelectRiddle}
@@ -1319,7 +1477,13 @@ export default function App() {
                   riddlePool={riddlePool}
                 />
               )}
-              {view === 'profile' && <ProfileView onNavigate={handleNavigate} />}
+              {view === 'profile' && (
+                <ProfileView
+                  onNavigate={navigateTo}
+                  userEmail={authEmail}
+                  onLogout={handleLogout}
+                />
+              )}
               {view === 'developing' && <DevelopingView onBack={() => setView(lastView)} showBack={false} />}
             </Layout>
           </motion.div>
@@ -1345,6 +1509,14 @@ export default function App() {
           />
         )}
       </AnimatePresence>
+
+      <LoginModal
+        open={loginModalOpen}
+        onClose={() => {
+          pendingNavAfterLoginRef.current = null;
+          setLoginModalOpen(false);
+        }}
+      />
     </div>
   );
 }

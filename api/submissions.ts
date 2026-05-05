@@ -1,7 +1,9 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { parseBearerHeader } from './_lib/authHeader.js';
 import { getSupabaseAdmin } from './_lib/supabase.js';
 import { applyCors, handleOptions } from './_lib/cors.js';
 import { parseJsonBody } from './_lib/parseJsonBody.js';
+import { resolveSubmitterFromBearer } from './_lib/resolveSubmitter.js';
 
 const SOUP = new Set(['清汤', '红汤', '黑汤']);
 const MAX_TITLE = 200;
@@ -44,17 +46,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
       json(res, 400, { error: '内容过长' });
       return;
     }
+
+    const bearer = parseBearerHeader(req.headers.authorization);
+    if (!bearer) {
+      json(res, 401, {
+        error: '需要登录',
+        hint: '请使用邮箱 Magic Link 登录（网页）或从小程序打开后再投稿',
+      });
+      return;
+    }
+    const submitterOpenid = await resolveSubmitterFromBearer(bearer);
+    if (!submitterOpenid) {
+      json(res, 401, { error: '登录已失效', hint: '请重新登录' });
+      return;
+    }
+
     const supabase = getSupabaseAdmin();
-    const { data, error } = await supabase
-      .from('riddle_submissions')
-      .insert({
-        title,
-        surface,
-        bottom,
-        soup_type: soupType,
-        difficulty: 'medium',
-        status: 'pending',
-      })
+    const row = {
+      title,
+      surface,
+      bottom,
+      soup_type: soupType,
+      difficulty: 'medium',
+      status: 'pending',
+      submitter_openid: submitterOpenid,
+    };
+
+    const { data, error } = await supabase.from('riddle_submissions').insert(row)
       .select('id, title, surface, bottom, soup_type, status, created_at')
       .single();
     if (error) {
