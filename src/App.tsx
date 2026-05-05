@@ -151,11 +151,14 @@ const Layout = ({
           </button>
 
           <nav
-            className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-3 sm:gap-8 pointer-events-auto"
+            className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-2 sm:gap-6 md:gap-8 pointer-events-auto"
             aria-label="主导航"
           >
             <button type="button" onClick={() => go('home')} className={linkClass('home')}>
               汤谱
+            </button>
+            <button type="button" onClick={() => go('rules')} className={linkClass('rules')}>
+              玩法简介
             </button>
             <button type="button" onClick={() => go('developing')} className={linkClass('developing')}>
               每日一汤
@@ -198,6 +201,9 @@ const Layout = ({
             <p className="mb-4 font-serif text-sm text-on-surface-variant">导航</p>
             <button type="button" onClick={() => go('home')} className={`py-3 text-left ${linkClass('home')}`}>
               汤谱
+            </button>
+            <button type="button" onClick={() => go('rules')} className={`py-3 text-left ${linkClass('rules')}`}>
+              玩法简介
             </button>
             <button
               type="button"
@@ -276,6 +282,15 @@ const RiddleCard = ({
 
 // --- Views ---
 
+type DifficultyFilter = 'all' | 'easy' | 'medium' | 'hard';
+
+const DIFFICULTY_FILTER_OPTIONS: { value: DifficultyFilter; label: string }[] = [
+  { value: 'all', label: '全部' },
+  { value: 'easy', label: formatDifficultyLabel('easy') },
+  { value: 'medium', label: formatDifficultyLabel('medium') },
+  { value: 'hard', label: formatDifficultyLabel('hard') },
+];
+
 const HomeView = ({
   onSelectRiddle,
   progressMap,
@@ -287,17 +302,32 @@ const HomeView = ({
 }) => {
   const [bannerRiddle, setBannerRiddle] = useState<Riddle>(() => pickRandomRiddleFromPool(riddlePool));
   const [searchQuery, setSearchQuery] = useState('');
+  const [difficultyFilter, setDifficultyFilter] = useState<DifficultyFilter>('all');
+  const [typeFilter, setTypeFilter] = useState<string>('all');
   const bannerProg = progressMap[bannerRiddle.id];
 
-  const filteredRiddles = riddlePool.filter((r) => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return true;
-    return (
-      r.title.toLowerCase().includes(q) ||
-      r.surface.toLowerCase().includes(q) ||
-      r.type.toLowerCase().includes(q)
-    );
-  });
+  const uniqueTypes = useMemo(() => {
+    const s = new Set(riddlePool.map((r) => r.type.trim()).filter(Boolean));
+    return [...s].sort((a, b) => a.localeCompare(b, 'zh-CN'));
+  }, [riddlePool]);
+
+  const filteredRiddles = useMemo(() => {
+    return riddlePool.filter((r) => {
+      if (difficultyFilter !== 'all' && r.difficulty.trim().toLowerCase() !== difficultyFilter) {
+        return false;
+      }
+      if (typeFilter !== 'all' && r.type.trim() !== typeFilter) {
+        return false;
+      }
+      const q = searchQuery.trim().toLowerCase();
+      if (!q) return true;
+      return (
+        r.title.toLowerCase().includes(q) ||
+        r.surface.toLowerCase().includes(q) ||
+        r.type.toLowerCase().includes(q)
+      );
+    });
+  }, [riddlePool, searchQuery, difficultyFilter, typeFilter]);
 
   const handleRandomSoup = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -365,9 +395,50 @@ const HomeView = ({
             className="w-full bg-surface-low border-none focus:ring-1 focus:ring-primary/50 text-on-surface placeholder:text-on-surface-variant/50 pl-12 py-3 text-sm tracking-wider"
           />
         </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <label htmlFor="riddle-filter-difficulty" className="text-[10px] uppercase tracking-widest text-on-surface-variant/70 block">
+              难度
+            </label>
+            <select
+              id="riddle-filter-difficulty"
+              value={difficultyFilter}
+              onChange={(e) => setDifficultyFilter(e.target.value as DifficultyFilter)}
+              className="w-full bg-surface-low border border-outline-variant/30 text-on-surface text-sm py-3 px-3 tracking-wider focus:ring-1 focus:ring-primary/50 focus:outline-none appearance-none cursor-pointer"
+            >
+              {DIFFICULTY_FILTER_OPTIONS.map(({ value, label }) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-2">
+            <label htmlFor="riddle-filter-type" className="text-[10px] uppercase tracking-widest text-on-surface-variant/70 block">
+              标签
+            </label>
+            <select
+              id="riddle-filter-type"
+              value={typeFilter === 'all' ? '' : typeFilter}
+              onChange={(e) => setTypeFilter(e.target.value === '' ? 'all' : e.target.value)}
+              className="w-full bg-surface-low border border-outline-variant/30 text-on-surface text-sm py-3 px-3 tracking-wider focus:ring-1 focus:ring-primary/50 focus:outline-none appearance-none cursor-pointer"
+            >
+              <option value="">全部</option>
+              {uniqueTypes.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
         <div className="space-y-8">
           {filteredRiddles.length === 0 ? (
-            <p className="text-sm text-on-surface-variant pl-1">没有匹配的汤，换个关键词试试。</p>
+            <p className="text-sm text-on-surface-variant pl-1">
+              没有匹配的汤，试试调整难度或标签筛选，或换个关键词。
+            </p>
           ) : (
             filteredRiddles.map((r) => (
               <div key={r.id}>
@@ -381,6 +452,17 @@ const HomeView = ({
             ))
           )}
         </div>
+
+        <footer className="pt-8 border-t border-outline-variant/10 space-y-3 text-center text-xs text-on-surface-variant leading-relaxed font-serif">
+          <p>本站题目来源于互联网公开内容，仅供娱乐学习使用，非商业用途。</p>
+          <p>
+            如有侵权请联系{' '}
+            <a href="mailto:shenpinghuang@163.com" className="text-primary underline-offset-2 hover:underline">
+              shenpinghuang@163.com
+            </a>
+            ，核实后将立即删除。
+          </p>
+        </footer>
       </section>
     </div>
   );
@@ -1016,44 +1098,71 @@ const DevelopingView = ({ onBack, showBack = true }: { onBack: () => void, showB
   );
 };
 
+/** 玩法正文：对局内全屏规则页与首页壳内「玩法简介」共用 */
+const GameplayGuideContent = () => (
+  <>
+    <section className="space-y-8">
+      <h1 className="text-3xl md:text-4xl font-bold text-primary tracking-tight">海龟汤基本玩法</h1>
+      <div className="space-y-6 text-on-surface text-lg leading-relaxed font-serif">
+        <p>
+          海龟汤是一种情境推理游戏。游戏开始时，汤主会给出一个离奇的故事情节（即“汤面”），通常只包含结局。你的任务是通过不断提问，拼凑出完整的故事情节（即“汤底”）。
+        </p>
+        <p>
+          在推理过程中，汤主只能对你的提问做出四种回答：<span className="text-primary font-bold">是 (YES)</span>、<span className="text-secondary font-bold">不是 (NO)</span>、<span className="text-tertiary font-bold">是也不是 (YES AND NO)</span>，或者<span className="text-on-surface-variant font-bold">不重要 (IRRELEVANT)</span>。通过这些碎片化的反馈，你需要一步步还原出深藏在迷雾中的真相。
+        </p>
+      </div>
+    </section>
+    <section className="space-y-8">
+      <h2 className="text-3xl md:text-4xl font-bold text-primary tracking-tight">温馨提示</h2>
+      <div className="space-y-6 text-on-surface text-lg leading-relaxed font-serif">
+        <p>
+          每局游戏都有固定的提问次数上限，请谨慎珍惜每一次提问机会。你可以通过文字输入问题，也可以长按麦克风图标进行语音提问。
+        </p>
+        <p>
+          如果你陷入了僵局，无法找到新的切入点，可以向汤主索要线索，但这将消耗一次提问机会。保持冷静，真相就在细节之中。
+        </p>
+        <p>
+          当你觉得已接近真相时，不妨将故事<strong className="text-primary">尽量完整、连贯地复述</strong>给汤主听；完整叙事更容易对上主持人侧的通关判定，从而提高触发通关话术的成功率。
+        </p>
+      </div>
+    </section>
+  </>
+);
+
 const RulesView = ({ onBack }: { onBack: () => void }) => {
   return (
     <div className="bg-surface min-h-screen">
       <header className="w-full sticky top-0 z-50 bg-surface border-b border-outline-variant/10">
         <nav className="flex items-center px-6 py-4">
-          <button onClick={onBack} className="text-primary p-1">
+          <button type="button" onClick={onBack} className="text-primary p-1">
             <ArrowLeft size={24} />
           </button>
           <div className="ml-auto text-on-surface-variant font-serif text-sm tracking-widest uppercase">The Alchemist’s Ledger</div>
         </nav>
       </header>
       <main className="max-w-2xl mx-auto px-8 pt-12 pb-24 space-y-20">
-        <section className="space-y-8">
-          <h1 className="text-3xl md:text-4xl font-bold text-primary tracking-tight">海龟汤基本玩法</h1>
-          <div className="space-y-6 text-on-surface text-lg leading-relaxed font-serif">
-            <p>
-              海龟汤是一种情境推理游戏。游戏开始时，汤主会给出一个离奇的故事情节（即“汤面”），通常只包含结局。你的任务是通过不断提问，拼凑出完整的故事情节（即“汤底”）。
-            </p>
-            <p>
-              在推理过程中，汤主只能对你的提问做出四种回答：<span className="text-primary font-bold">是 (YES)</span>、<span className="text-secondary font-bold">不是 (NO)</span>、<span className="text-tertiary font-bold">是也不是 (YES AND NO)</span>，或者<span className="text-on-surface-variant font-bold">不重要 (IRRELEVANT)</span>。通过这些碎片化的反馈，你需要一步步还原出深藏在迷雾中的真相。
-            </p>
-          </div>
-        </section>
-        <section className="space-y-8">
-          <h2 className="text-3xl md:text-4xl font-bold text-primary tracking-tight">温馨提示</h2>
-          <div className="space-y-6 text-on-surface text-lg leading-relaxed font-serif">
-            <p>
-              每局游戏都有固定的提问次数上限，请谨慎珍惜每一次提问机会。你可以通过文字输入问题，也可以长按麦克风图标进行语音提问。
-            </p>
-            <p>
-              如果你陷入了僵局，无法找到新的切入点，可以向汤主索要线索，但这将消耗一次提问机会。保持冷静，真相就在细节之中。
-            </p>
-          </div>
-        </section>
+        <GameplayGuideContent />
       </main>
     </div>
   );
 };
+
+/** 无对局时，顶栏下展示的玩法简介（与对局内 RulesView 正文一致） */
+const ShellGameplayGuide = ({ onBack }: { onBack: () => void }) => (
+  <div className="px-4 pb-16 pt-2">
+    <button
+      type="button"
+      onClick={onBack}
+      className="flex items-center gap-2 text-primary text-sm font-serif tracking-widest mb-8 hover:opacity-90"
+    >
+      <ArrowLeft size={22} />
+      返回
+    </button>
+    <div className="max-w-2xl mx-auto space-y-20">
+      <GameplayGuideContent />
+    </div>
+  </div>
+);
 
 const SubmitView = ({
   onBack,
@@ -1516,7 +1625,7 @@ export default function App() {
   return (
     <div className="bg-surface min-h-screen selection:bg-primary selection:text-surface">
       <AnimatePresence mode="wait">
-        {(view === 'game' || view === 'rules') && currentRiddle ? (
+        {currentRiddle && (view === 'game' || view === 'rules') ? (
           <motion.div key="game-session" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             {/* 规则页叠在对局之上，避免卸载 GameRoomView 导致消息与回合进度丢失 */}
             <div className={view === 'rules' ? 'hidden' : undefined} aria-hidden={view === 'rules'}>
@@ -1566,6 +1675,7 @@ export default function App() {
                 />
               )}
               {view === 'developing' && <DevelopingView onBack={() => setView(lastView)} showBack={false} />}
+              {view === 'rules' && <ShellGameplayGuide onBack={() => setView(lastView)} />}
             </Layout>
           </motion.div>
         )}
