@@ -71,6 +71,15 @@ function hostIndicatesSuccess(hostText: string): boolean {
   );
 }
 
+/** 简单 20 / 中等 25 / 困难 30；未知或非标准值按中等处理 */
+function maxQuestionAttemptsForDifficulty(raw: string): number {
+  const d = raw.trim().toLowerCase();
+  if (d === 'easy') return 20;
+  if (d === 'hard') return 30;
+  if (d === 'medium') return 25;
+  return 25;
+}
+
 type FinishReason = 'win' | 'give_up' | 'out_of_turns';
 
 interface GameFinishPayload {
@@ -80,6 +89,7 @@ interface GameFinishPayload {
   bottomText: string;
   finishReason: FinishReason;
   riddleId: string;
+  maxQuestionLimit: number;
 }
 
 function failureGradeTitle(finishReason: 'give_up' | 'out_of_turns', count: number): string {
@@ -532,7 +542,7 @@ const GameRoomView = ({
   const inMiniProgramWebView = useMemo(() => isWeChatMiniProgramWebView(), []);
   const sttOk = isSpeechToTextSupported();
   const voiceAllowed = sttOk && !inMiniProgramWebView;
-  const maxAttempts = 20;
+  const maxAttempts = maxQuestionAttemptsForDifficulty(riddle.difficulty);
   const scrollRef = useRef<HTMLDivElement>(null);
   const gameStartedAtRef = useRef<number>(Date.now());
   const cozeConvRef = useRef<CozeConversationState>({});
@@ -570,6 +580,7 @@ const GameRoomView = ({
     bottomText: riddle.bottom,
     finishReason,
     riddleId: riddle.id,
+    maxQuestionLimit: maxAttempts,
   });
 
   const handleGiveUp = () => {
@@ -820,6 +831,7 @@ const GameRoomView = ({
 const SettlementView = ({
   success,
   count,
+  maxQuestionLimit,
   elapsedMs,
   bottomText,
   finishReason,
@@ -827,6 +839,7 @@ const SettlementView = ({
 }: {
   success: boolean;
   count: number;
+  maxQuestionLimit: number;
   elapsedMs: number;
   bottomText: string;
   finishReason: FinishReason;
@@ -936,7 +949,7 @@ const SettlementView = ({
             </div>
             <div className="bg-surface-low py-3 px-1 border-l border-primary/20 flex flex-col items-center justify-center">
               <span className="text-[8px] uppercase tracking-widest text-on-surface-variant opacity-60">提问</span>
-              <span className="font-serif text-xl text-on-surface tracking-tighter">{count}/20</span>
+              <span className="font-serif text-xl text-on-surface tracking-tighter">{count}/{maxQuestionLimit}</span>
             </div>
             <div className="bg-surface-low py-3 px-1 border-l border-secondary/20 flex flex-col items-center justify-center">
               <span className="text-[8px] uppercase tracking-widest text-on-surface-variant opacity-60">提示</span>
@@ -1116,7 +1129,7 @@ const GameplayGuideContent = () => (
       <h2 className="text-3xl md:text-4xl font-bold text-primary tracking-tight">温馨提示</h2>
       <div className="space-y-6 text-on-surface text-lg leading-relaxed font-serif">
         <p>
-          每局游戏都有固定的提问次数上限，请谨慎珍惜每一次提问机会。你可以通过文字输入问题，也可以长按麦克风图标进行语音提问。
+          每局游戏都有提问次数上限（随题目难度变化：简单、中等、困难对应不同次数），请谨慎珍惜每一次提问机会。你可以通过文字输入问题，也可以长按麦克风图标进行语音提问。
         </p>
         <p>
           如果你陷入了僵局，无法找到新的切入点，可以向汤主索要线索，但这将消耗一次提问机会。保持冷静，真相就在细节之中。
@@ -1499,6 +1512,7 @@ export default function App() {
   const [settlement, setSettlement] = useState<{
     success: boolean;
     count: number;
+    maxQuestionLimit: number;
     elapsedMs: number;
     bottomText: string;
     finishReason: FinishReason;
@@ -1608,6 +1622,7 @@ export default function App() {
     setSettlement({
       success: payload.success,
       count: payload.count,
+      maxQuestionLimit: payload.maxQuestionLimit,
       elapsedMs: payload.elapsedMs,
       bottomText: payload.bottomText,
       finishReason: payload.finishReason,
@@ -1692,6 +1707,7 @@ export default function App() {
           <SettlementView 
             success={settlement.success} 
             count={settlement.count} 
+            maxQuestionLimit={settlement.maxQuestionLimit}
             elapsedMs={settlement.elapsedMs}
             bottomText={settlement.bottomText}
             finishReason={settlement.finishReason}
