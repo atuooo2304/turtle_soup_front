@@ -71,6 +71,14 @@ function hostIndicatesSuccess(hostText: string): boolean {
   );
 }
 
+/**
+ * 判断主持人是否宣告本局因投降/放弃而结束。须与 Coze 海龟汤 Bot 的固定话术一致；
+ * 若你在扣子侧修改该句，请同步更新此处。
+ */
+function hostIndicatesGiveUp(hostText: string): boolean {
+  return hostText.includes('本轮失败');
+}
+
 /** 简单 20 / 中等 25 / 困难 30；未知或非标准值按中等处理 */
 function maxQuestionAttemptsForDifficulty(raw: string): number {
   const d = raw.trim().toLowerCase();
@@ -619,6 +627,8 @@ const GameRoomView = ({
 
     if (!hostOffline && hostIndicatesSuccess(response)) {
       setTimeout(() => onFinish(buildFinish(true, usedAttempts, elapsedMs, 'win')), 1500);
+    } else if (!hostOffline && hostIndicatesGiveUp(response)) {
+      setTimeout(() => onFinish(buildFinish(false, usedAttempts, elapsedMs, 'give_up')), 1500);
     } else if (usedAttempts >= maxAttempts) {
       setTimeout(() => onFinish(buildFinish(false, usedAttempts, elapsedMs, 'out_of_turns')), 1500);
     }
