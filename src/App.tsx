@@ -1134,10 +1134,9 @@ const RulesView = ({ onBack }: { onBack: () => void }) => {
     <div className="bg-surface min-h-screen">
       <header className="w-full sticky top-0 z-50 bg-surface border-b border-outline-variant/10">
         <nav className="flex items-center px-6 py-4">
-          <button type="button" onClick={onBack} className="text-primary p-1">
+          <button type="button" onClick={onBack} className="text-primary p-1" aria-label="返回">
             <ArrowLeft size={24} />
           </button>
-          <div className="ml-auto text-on-surface-variant font-serif text-sm tracking-widest uppercase">The Alchemist’s Ledger</div>
         </nav>
       </header>
       <main className="max-w-2xl mx-auto px-8 pt-12 pb-24 space-y-20">
