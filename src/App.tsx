@@ -757,6 +757,32 @@ const SettlementView = ({
   const failTitle = !success ? failureGradeTitle(failReason, count) : '';
   const failSub = !success ? failureGradeSubtitle(failReason, count) : '';
 
+  const [shareFeedback, setShareFeedback] = useState<string | null>(null);
+
+  const handleShareLink = async () => {
+    const url = `${window.location.origin}${window.location.pathname}${window.location.search}${window.location.hash}`;
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = url;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      } catch {
+        window.alert('复制失败，请长按地址栏链接手动复制');
+        return;
+      }
+    }
+    setShareFeedback('已复制链接，去分享吧～');
+    window.setTimeout(() => setShareFeedback(null), 2800);
+  };
+
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-surface/90 backdrop-blur-md">
       <motion.div 
@@ -837,7 +863,14 @@ const SettlementView = ({
           </section>
 
           <footer className="flex flex-col gap-3 pt-4">
-            <button className="bg-primary text-surface font-bold py-4 tracking-[0.2em] uppercase text-xs flex items-center justify-center gap-2 active:scale-95 transition-all">
+            {shareFeedback && (
+              <p className="text-center text-sm text-primary font-serif tracking-wide">{shareFeedback}</p>
+            )}
+            <button
+              type="button"
+              onClick={() => void handleShareLink()}
+              className="bg-primary text-surface font-bold py-4 tracking-[0.2em] uppercase text-xs flex items-center justify-center gap-2 active:scale-95 transition-all"
+            >
               <Share2 size={18} />
               分享我的旅程
             </button>
