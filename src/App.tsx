@@ -609,17 +609,24 @@ const GameRoomView = ({
     setAttempts((prev) => prev + 1);
 
     const history = messages.map((m) => ({ role: m.role === 'user' ? 'user' : 'assistant', text: m.text }));
-    const response = await askHost(
-      riddle.surface,
-      riddle.bottom,
-      question,
-      history,
-      cozeConvRef.current,
-    );
+    let response: string;
+    try {
+      response = await askHost(
+        riddle.surface,
+        riddle.bottom,
+        question,
+        history,
+        cozeConvRef.current,
+      );
+    } catch (e) {
+      console.error('[askHost]', e);
+      response = '汤主走神了，一会再试。';
+    } finally {
+      setLoading(false);
+    }
 
     const hostMsg: Message = { id: (Date.now() + 1).toString(), role: 'host', text: response };
     setMessages((prev) => [...prev, hostMsg]);
-    setLoading(false);
 
     const usedAttempts = attempts + 1;
     const elapsedMs = Date.now() - gameStartedAtRef.current;
