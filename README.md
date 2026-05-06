@@ -15,9 +15,13 @@ View your app in AI Studio: https://ai.studio/apps/5893e7ea-1c1c-4549-a386-ae3cf
 
 1. Install dependencies:
    `npm install`
-2. Copy [.env.example](.env.example) to `.env.local` and set `COZE_TOKEN`, `COZE_BOT_ID`（参见示例中说明）
+2. Copy [.env.example](.env.example) to `.env.local`。主持人可选 **扣子 Coze** 或 **DeepSeek**：
+   - **Coze（默认）**：配置 **`COZE_TOKEN`、`COZE_BOT_ID`**（及可选 `COZE_REGION`）；构建变量 **`VITE_HOST_PROVIDER=coze`** 或不写。
+   - **DeepSeek**：配置 **`DEEPSEEK_API_KEY`**（及可选 `DEEPSEEK_API_URL`、`DEEPSEEK_MODEL`、`DEEPSEEK_SYSTEM_PROMPT`）；构建变量 **`VITE_HOST_PROVIDER=deepseek`**。密钥仍只用于服务端与本地 Vite 中间件，不会打进前端包。
 3. Run the app:
    `npm run dev`
+
+也可使用 **`npx vercel dev`** 在本机同时调试与线上一致的 Serverless API（需已登录 Vercel CLI）。线上需在 Vercel 为 `/api/coze-chat`、`/api/deepseek-chat` 分别配置对应环境变量；切换模型时务必同步修改 **`VITE_HOST_PROVIDER`** 并重新构建前端。
 
 ## Web 端（主推）
 

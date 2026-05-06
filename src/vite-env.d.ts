@@ -3,14 +3,10 @@
 interface ImportMetaEnv {
   readonly VITE_SUPABASE_URL?: string;
   readonly VITE_SUPABASE_ANON_KEY?: string;
-  /** Coze PAT，与 .env.example 一致 */
-  readonly COZE_TOKEN?: string;
-  readonly COZE_BOT_ID?: string;
-  /** `cn` 时使用 https://api.coze.cn，否则默认国际版 https://api.coze.com */
-  readonly COZE_REGION?: string;
-  /** 若设置则优先于 COZE_REGION */
-  readonly COZE_BASE_URL?: string;
-  readonly COZE_USER_ID?: string;
+  /** 可选：未登录时的 Coze user_id 后缀标识（默认仍为 turtle-soup-guest） */
+  readonly VITE_COZE_USER_ID?: string;
+  /** 主持人后端：`coze`（默认）| `deepseek`（须配置服务端 DEEPSEEK_API_KEY） */
+  readonly VITE_HOST_PROVIDER?: string;
   readonly PORT?: string;
 }
 

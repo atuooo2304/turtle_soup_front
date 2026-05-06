@@ -1,12 +1,11 @@
 /**
- * 扣子（Coze）智能体作为海龟汤主持人。
- * 环境变量与根目录 `.env.example` 对齐：`COZE_TOKEN`、`COZE_BOT_ID`、`COZE_REGION` / `COZE_BASE_URL`、`COZE_USER_ID`。
- * 微信小程序登录后，`getCozeRuntimeUserId()` 优先于环境变量，实现对局按用户隔离。
- * 开发环境通过 Vite 代理 `/coze-api` 转发到当前配置的 API 域名，避免浏览器 CORS。
- * @see https://www.coze.cn/open/docs/developer_guides/chat_v3
+ * 海龟汤主持人：默认 **扣子 Coze**，可通过 `VITE_HOST_PROVIDER=deepseek` 切换为 DeepSeek Chat API。
+ * 密钥均在服务端（`/api/coze-chat`、`/api/deepseek-chat`）；浏览器不携带 PAT/API Key。
+ * 微信小程序登录后，`getCozeRuntimeUserId()` 优先（Coze user_id；DeepSeek 路径下仍可用于日志侧区分）。
  */
 
 import { getCozeRuntimeUserId } from './authSession';
+import { consumeOpenAIChatStream } from './openaiChatStream';
 
 export type CozeConversationState = {
   conversationId?: string;
@@ -14,16 +13,17 @@ export type CozeConversationState = {
 
 const FALLBACK = '汤主走神了，一会再试。';
 
-function cozeApiBaseFromEnv(): string {
-  const base = (import.meta.env.COZE_BASE_URL as string | undefined)?.trim();
-  if (base) return base.replace(/\/$/, '');
-  const region = String(import.meta.env.COZE_REGION || '').toLowerCase();
-  if (region === 'cn' || region === 'china') return 'https://api.coze.cn';
-  return 'https://api.coze.com';
+function hostProvider(): 'coze' | 'deepseek' {
+  const p = (import.meta.env.VITE_HOST_PROVIDER || 'coze').trim().toLowerCase();
+  return p === 'deepseek' ? 'deepseek' : 'coze';
 }
 
-function apiRoot(): string {
-  return import.meta.env.DEV ? '/coze-api' : cozeApiBaseFromEnv();
+function cozeChatProxyPath(): string {
+  return '/api/coze-chat';
+}
+
+function deepseekChatProxyPath(): string {
+  return '/api/deepseek-chat';
 }
 
 function buildFirstUserContent(surface: string, bottom: string, question: string): string {
@@ -55,28 +55,17 @@ function parseFrame(block: string): { event: string; data: string } | null {
   return { event, data };
 }
 
-/**
- * 向 Coze 主持人提问。会就地更新 `conv.conversationId`（首次对话后写入，用于多轮上下文）。
- */
-export async function askHost(
+async function askCozeHost(
   puzzleSurface: string,
   puzzleBottom: string,
   question: string,
-  _history: { role: string; text: string }[],
   conv: CozeConversationState,
 ): Promise<string> {
-  const pat = (import.meta.env.COZE_TOKEN as string | undefined)?.trim();
-  const botId = (import.meta.env.COZE_BOT_ID as string | undefined)?.trim();
   const runtimeId = getCozeRuntimeUserId();
   const userId =
     runtimeId?.trim() ||
-    (import.meta.env.COZE_USER_ID as string | undefined)?.trim() ||
+    (import.meta.env.VITE_COZE_USER_ID as string | undefined)?.trim() ||
     'turtle-soup-guest';
-
-  if (!pat || !botId) {
-    console.warn('[Coze] 请在 .env.local 中配置 COZE_TOKEN 与 COZE_BOT_ID（参见 .env.example）');
-    return FALLBACK;
-  }
 
   const isContinuing = Boolean(conv.conversationId);
   const additional_messages: { role: string; content: string; content_type: string }[] = [];
@@ -95,18 +84,17 @@ export async function askHost(
     });
   }
 
-  const url = `${apiRoot()}/v3/chat${conv.conversationId ? `?conversation_id=${encodeURIComponent(conv.conversationId)}` : ''}`;
+  const url = `${cozeChatProxyPath()}${conv.conversationId ? `?conversation_id=${encodeURIComponent(conv.conversationId)}` : ''}`;
 
   let res: Response;
   try {
     res = await fetch(url, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${pat}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        bot_id: botId,
+        bot_id: '',
         user_id: userId,
         stream: true,
         auto_save_history: true,
@@ -203,4 +191,62 @@ export async function askHost(
 
   const out = (lastCompletedAnswer || deltaAnswer).trim();
   return out || '不重要';
+}
+
+async function askDeepseekHost(
+  puzzleSurface: string,
+  puzzleBottom: string,
+  question: string,
+  history: { role: string; text: string }[],
+): Promise<string> {
+  let res: Response;
+  try {
+    res = await fetch(deepseekChatProxyPath(), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        surface: puzzleSurface,
+        bottom: puzzleBottom,
+        question,
+        history,
+      }),
+    });
+  } catch (e) {
+    console.error('[DeepSeek] 网络错误', e);
+    return FALLBACK;
+  }
+
+  if (!res.ok) {
+    const t = await res.text().catch(() => '');
+    console.error('[DeepSeek] HTTP', res.status, t);
+    return FALLBACK;
+  }
+
+  const ct = res.headers.get('content-type') || '';
+  if (!ct.includes('text/event-stream')) {
+    const t = await res.text().catch(() => '');
+    console.error('[DeepSeek] 非 SSE', t.slice(0, 500));
+    return FALLBACK;
+  }
+
+  const text = await consumeOpenAIChatStream(res.body);
+  return text || '不重要';
+}
+
+/**
+ * 向主持人提问。`conv` 仅在 Coze 模式下用于 `conversation_id`；DeepSeek 模式用 `history` 维护多轮。
+ */
+export async function askHost(
+  puzzleSurface: string,
+  puzzleBottom: string,
+  question: string,
+  history: { role: string; text: string }[],
+  conv: CozeConversationState,
+): Promise<string> {
+  if (hostProvider() === 'deepseek') {
+    return askDeepseekHost(puzzleSurface, puzzleBottom, question, history);
+  }
+  return askCozeHost(puzzleSurface, puzzleBottom, question, conv);
 }
