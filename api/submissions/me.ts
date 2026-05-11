@@ -14,7 +14,8 @@ type DbRow = {
   title: string;
   surface: string;
   bottom: string;
-  soup_type: string;
+  tag: string;
+  difficulty: string;
   status: string;
   reviewer_note: string | null;
   created_at: string;
@@ -33,7 +34,8 @@ function rowToClient(row: DbRow) {
     title: row.title,
     surface: row.surface,
     bottom: row.bottom,
-    soupType: row.soup_type,
+    tag: (row.tag ?? '轻松').trim() || '轻松',
+    difficulty: (row.difficulty ?? 'medium').toLowerCase(),
     status: st,
     submittedAt: new Date(row.created_at).getTime(),
     reviewerNote: row.reviewer_note && row.reviewer_note.trim() ? row.reviewer_note.trim() : null,
@@ -68,7 +70,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
     const supabase = getSupabaseAdmin();
     const { data, error } = await supabase
       .from('riddle_submissions')
-      .select('id, title, surface, bottom, soup_type, status, reviewer_note, created_at, reviewed_at')
+      .select('id, title, surface, bottom, tag, difficulty, status, reviewer_note, created_at, reviewed_at')
       .eq('submitter_openid', submitterOpenid)
       .order('created_at', { ascending: false });
     if (error) {

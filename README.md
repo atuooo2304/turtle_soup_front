@@ -52,7 +52,9 @@ H5 在 **微信小程序 WebView** 内会将 `document.title` 置空，减少微
 
 ### 投稿审核（Supabase + Vercel）
 
-「贡献新汤」在生产环境通过 **同源 `/api/submissions`** 写入 Supabase 表 `riddle_submissions`；**汤谱**由构建内 [`src/data/riddles.csv`](src/data/riddles.csv) 与 **`GET /api/riddles-published`**（`status = approved`）合并展示。管理员审核通过后，用户刷新 H5 即可看到新谜题（小程序 WebView 同理）。
+「贡献新汤」在生产环境通过 **同源 `POST /api/submissions`** 写入 Supabase 表 `riddle_submissions`（JSON 体须含 **`tag`**：`轻松` | `恐怖` | `悬疑` | `搞笑`，以及 **`difficulty`**：`easy` | `medium` | `hard`，与汤谱筛选一致）；**汤谱**由构建内 [`src/data/riddles.csv`](src/data/riddles.csv) 与 **`GET /api/riddles-published`**（`status = approved`）合并展示。管理员审核通过后，用户刷新 H5 即可看到新谜题（小程序 WebView 同理）。
+
+**数据库迁移（已有旧表时必做）**：在部署依赖 `tag` 列的新版 API **之前**，于 Supabase SQL Editor 执行 [`supabase/migrations/003_riddle_submissions_tag.sql`](supabase/migrations/003_riddle_submissions_tag.sql)，将原 `soup_type`（清汤/红汤/黑汤）迁移为 `tag` 并删除 `soup_type` 列。新建项目顺序：`001` → `002`（小程序投稿）→ `003`。
 
 **投稿记录与审核状态**：个人中心「投稿记录」进入时会请求 **`GET /api/submissions/me`**（需与投稿相同的 `Authorization: Bearer`），按 `submitter_openid` 从库中拉取该用户的投稿并与本机缓存合并（**服务端状态为准**），从而与你在 Supabase 或管理接口中改的 `approved` / `rejected` 一致。若某条历史投稿行的 **`submitter_openid` 为空**（迁移前数据），接口无法返回该行，用户端只能继续显示本机旧状态；可在 Supabase 中手工补全为 `supabase:<用户 uuid>` 或对应微信 openid。
 
@@ -66,7 +68,7 @@ H5 在 **微信小程序 WebView** 内会将 `document.title` 置空，减少微
 
 实施步骤：
 
-1. 在 Supabase 项目 **SQL Editor** 中执行 [`supabase/migrations/001_riddle_submissions.sql`](supabase/migrations/001_riddle_submissions.sql) 建表；若启用微信登录，再执行 [`002_submitter_openid.sql`](supabase/migrations/002_submitter_openid.sql)。
+1. 在 Supabase 项目 **SQL Editor** 中执行 [`supabase/migrations/001_riddle_submissions.sql`](supabase/migrations/001_riddle_submissions.sql) 建表；若启用微信登录，再执行 [`002_submitter_openid.sql`](supabase/migrations/002_submitter_openid.sql)。若表已由旧版 API 使用过（含 `soup_type`），接着执行 [`003_riddle_submissions_tag.sql`](supabase/migrations/003_riddle_submissions_tag.sql)。
 2. 在 [Vercel](https://vercel.com/) 项目 **Environment Variables** 中配置（勿提交到仓库）：
    - `SUPABASE_URL`、`SUPABASE_SERVICE_ROLE_KEY`（**仅服务端**，用于 `api/` 函数）
    - `ADMIN_SECRET`（随机长字符串，用于管理接口 `Authorization: Bearer …`）

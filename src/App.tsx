@@ -37,9 +37,12 @@ import {
   listSubmissions,
   submissionStatusLabel,
   syncSubmissionsFromServer,
+  SUBMISSION_TAGS,
+  SUBMISSION_DIFFICULTIES,
   type RiddleSubmission,
-  type SoupType,
+  type SubmissionDifficulty,
   type SubmissionStatus,
+  type SubmissionTag,
 } from './lib/riddleSubmissions';
 import { LoginModal } from './components/LoginModal';
 import {
@@ -1204,7 +1207,8 @@ const SubmitView = ({
   const [title, setTitle] = useState('');
   const [surface, setSurface] = useState('');
   const [bottom, setBottom] = useState('');
-  const [selectedType, setSelectedType] = useState<SoupType>('清汤');
+  const [selectedTag, setSelectedTag] = useState<SubmissionTag>('悬疑');
+  const [selectedDifficulty, setSelectedDifficulty] = useState<SubmissionDifficulty>('medium');
   const [formError, setFormError] = useState<string | null>(null);
   const [formSuccess, setFormSuccess] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -1218,7 +1222,8 @@ const SubmitView = ({
         title,
         surface,
         bottom,
-        soupType: selectedType,
+        tag: selectedTag,
+        difficulty: selectedDifficulty,
       });
       if (result.ok === false) {
         setFormError(result.error);
@@ -1228,7 +1233,8 @@ const SubmitView = ({
       setTitle('');
       setSurface('');
       setBottom('');
-      setSelectedType('清汤');
+      setSelectedTag('悬疑');
+      setSelectedDifficulty('medium');
       window.setTimeout(() => {
         onSubmitted?.();
       }, 1200);
@@ -1288,23 +1294,40 @@ const SubmitView = ({
         </div>
 
         <div className="space-y-2">
-          <label className="text-xs uppercase tracking-widest text-primary/60">汤底浓度</label>
+          <label className="text-xs uppercase tracking-widest text-primary/60">难度</label>
           <div className="grid grid-cols-3 gap-2">
-            {(['清汤', '红汤', '黑汤'] as const).map((t) => (
+            {SUBMISSION_DIFFICULTIES.map((d) => (
+              <button
+                key={d}
+                type="button"
+                onClick={() => setSelectedDifficulty(d)}
+                className={`py-4 px-2 border text-sm font-serif tracking-wider transition-all ${
+                  selectedDifficulty === d
+                    ? 'bg-primary text-surface border-primary shadow-lg shadow-primary/20'
+                    : 'bg-surface-low border-outline-variant/20 hover:border-primary/50 text-on-surface'
+                }`}
+              >
+                {formatDifficultyLabel(d)}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <label className="text-xs uppercase tracking-widest text-primary/60">标签</label>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {SUBMISSION_TAGS.map((t) => (
               <button
                 key={t}
                 type="button"
-                onClick={() => setSelectedType(t)}
-                className={`p-4 flex flex-col items-center gap-2 border transition-all ${
-                  selectedType === t
-                    ? 'bg-primary text-surface border-primary shadow-lg shadow-primary/20'
-                    : 'bg-surface-low border-outline-variant/20 hover:border-primary/50'
+                onClick={() => setSelectedTag(t)}
+                className={`py-4 px-2 border text-sm font-serif tracking-wider transition-all ${
+                  selectedTag === t
+                    ? 'bg-secondary text-surface border-secondary shadow-lg shadow-secondary/20'
+                    : 'bg-surface-low border-outline-variant/20 hover:border-secondary/50 text-on-surface'
                 }`}
               >
-                <div className={`w-8 h-8 flex items-center justify-center ${selectedType === t ? 'opacity-100' : 'opacity-60'}`}>
-                  {t === '清汤' ? <HomeNavIcon size={20} /> : t === '红汤' ? <TrendingUp size={20} /> : <HelpCircle size={20} />}
-                </div>
-                <span className="text-xs font-serif">{t}</span>
+                {t}
               </button>
             ))}
           </div>
@@ -1440,7 +1463,9 @@ const HistoryView = ({
                   </span>
                   <h2 className="text-2xl font-serif leading-tight">{item.title}</h2>
                   <p className="text-sm opacity-50">提交于：{formatSubmissionDate(item.submittedAt)}</p>
-                  <p className="text-[10px] text-on-surface-variant/70">浓度：{item.soupType}</p>
+                  <p className="text-[10px] text-on-surface-variant/70">
+                    {formatDifficultyLabel(item.difficulty)} · {item.tag}
+                  </p>
                 </div>
                 <div className="flex flex-col items-end shrink-0">
                   <div className={`font-serif text-lg italic ${submissionStatusClass(item.status)}`}>
@@ -1474,6 +1499,9 @@ const HistoryView = ({
                   <div className="space-y-1 min-w-0">
                     <span className="text-[10px] uppercase tracking-widest text-primary/60">投稿详情</span>
                     <h2 className="text-3xl font-serif text-on-surface break-words">{selectedItem.title}</h2>
+                    <p className="text-xs text-on-surface-variant/80 tracking-wider pt-1">
+                      {formatDifficultyLabel(selectedItem.difficulty)} · {selectedItem.tag}
+                    </p>
                   </div>
                   <div
                     className={`px-3 py-1 text-xs font-bold tracking-widest shrink-0 ${submissionBadgeClass(selectedItem.status)}`}

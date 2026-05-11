@@ -5,7 +5,8 @@ import { applyCors, handleOptions } from './_lib/cors.js';
 import { parseJsonBody } from './_lib/parseJsonBody.js';
 import { resolveSubmitterFromBearer } from './_lib/resolveSubmitter.js';
 
-const SOUP = new Set(['清汤', '红汤', '黑汤']);
+const TAGS = new Set(['轻松', '恐怖', '悬疑', '搞笑']);
+const DIFFICULTIES = new Set(['easy', 'medium', 'hard']);
 const MAX_TITLE = 200;
 const MAX_BODY = 12000;
 
@@ -33,13 +34,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
     const title = typeof r.title === 'string' ? r.title.trim() : '';
     const surface = typeof r.surface === 'string' ? r.surface.trim() : '';
     const bottom = typeof r.bottom === 'string' ? r.bottom.trim() : '';
-    const soupType = typeof r.soupType === 'string' ? r.soupType.trim() : '';
+    const tag = typeof r.tag === 'string' ? r.tag.trim() : '';
+    const difficultyRaw = typeof r.difficulty === 'string' ? r.difficulty.trim().toLowerCase() : '';
     if (!title || !surface || !bottom) {
       json(res, 400, { error: '标题、汤面、汤底均不能为空' });
       return;
     }
-    if (!SOUP.has(soupType)) {
-      json(res, 400, { error: '汤底浓度无效' });
+    if (!TAGS.has(tag)) {
+      json(res, 400, { error: '标签无效' });
+      return;
+    }
+    if (!DIFFICULTIES.has(difficultyRaw)) {
+      json(res, 400, { error: '难度无效' });
       return;
     }
     if (title.length > MAX_TITLE || surface.length > MAX_BODY || bottom.length > MAX_BODY) {
@@ -66,14 +72,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
       title,
       surface,
       bottom,
-      soup_type: soupType,
-      difficulty: 'medium',
+      tag,
+      difficulty: difficultyRaw,
       status: 'pending',
       submitter_openid: submitterOpenid,
     };
 
     const { data, error } = await supabase.from('riddle_submissions').insert(row)
-      .select('id, title, surface, bottom, soup_type, status, created_at')
+      .select('id, title, surface, bottom, tag, difficulty, status, created_at')
       .single();
     if (error) {
       console.error('[api/submissions]', error);
@@ -94,7 +100,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
         title: data.title,
         surface: data.surface,
         bottom: data.bottom,
-        soupType: data.soup_type,
+        tag: data.tag as string,
+        difficulty: (data.difficulty as string)?.toLowerCase() ?? difficultyRaw,
         status: data.status,
         submittedAt: new Date(data.created_at as string).getTime(),
       },

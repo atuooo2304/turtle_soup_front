@@ -33,7 +33,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
     const supabase = getSupabaseAdmin();
     let q = supabase
       .from('riddle_submissions')
-      .select('id, title, surface, bottom, soup_type, difficulty, status, reviewer_note, created_at, reviewed_at')
+      .select('id, title, surface, bottom, tag, difficulty, status, reviewer_note, created_at, reviewed_at')
       .order('created_at', { ascending: false });
     if (statusFilter === 'all') {
       /* no filter */

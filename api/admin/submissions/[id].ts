@@ -56,7 +56,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
         reviewed_at: new Date().toISOString(),
       })
       .eq('id', id)
-      .select('id, title, surface, bottom, soup_type, difficulty, status, reviewer_note, created_at, reviewed_at')
+      .select('id, title, surface, bottom, tag, difficulty, status, reviewer_note, created_at, reviewed_at')
       .single();
     if (error) {
       console.error('[api/admin/submissions/[id]]', error);

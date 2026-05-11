@@ -3,7 +3,11 @@ import { authHeadersAsync } from './authSession';
 
 const STORAGE_KEY = 'turtle-soup-riddle-submissions';
 
-export type SoupType = '清汤' | '红汤' | '黑汤';
+export const SUBMISSION_TAGS = ['轻松', '恐怖', '悬疑', '搞笑'] as const;
+export type SubmissionTag = (typeof SUBMISSION_TAGS)[number];
+
+export const SUBMISSION_DIFFICULTIES = ['easy', 'medium', 'hard'] as const;
+export type SubmissionDifficulty = (typeof SUBMISSION_DIFFICULTIES)[number];
 
 export type SubmissionStatus = 'pending' | 'approved' | 'rejected';
 
@@ -12,7 +16,8 @@ export interface RiddleSubmission {
   title: string;
   surface: string;
   bottom: string;
-  soupType: SoupType;
+  tag: SubmissionTag;
+  difficulty: SubmissionDifficulty;
   status: SubmissionStatus;
   submittedAt: number;
   /** 审核备注（服务端同步后可能有） */
@@ -21,10 +26,20 @@ export interface RiddleSubmission {
   reviewedAt?: number;
 }
 
-const SOUP_TYPES: readonly SoupType[] = ['清汤', '红汤', '黑汤'];
+function isSubmissionTag(x: unknown): x is SubmissionTag {
+  return typeof x === 'string' && (SUBMISSION_TAGS as readonly string[]).includes(x);
+}
 
-function isSoupType(x: unknown): x is SoupType {
-  return typeof x === 'string' && (SOUP_TYPES as readonly string[]).includes(x);
+function isSubmissionDifficulty(x: unknown): x is SubmissionDifficulty {
+  return typeof x === 'string' && (SUBMISSION_DIFFICULTIES as readonly string[]).includes(x.trim().toLowerCase());
+}
+
+/** 旧版 localStorage 仅有 soupType（清汤/红汤/黑汤）时映射为 tag */
+function tagFromLegacySoupType(soupType: unknown): SubmissionTag | null {
+  if (soupType === '清汤') return '轻松';
+  if (soupType === '红汤') return '恐怖';
+  if (soupType === '黑汤') return '悬疑';
+  return null;
 }
 
 function normalizeStatus(x: unknown): SubmissionStatus {
@@ -44,14 +59,23 @@ function parseItem(x: unknown): RiddleSubmission | null {
   const surface = typeof x.surface === 'string' ? x.surface.trim() : '';
   const bottom = typeof x.bottom === 'string' ? x.bottom.trim() : '';
   if (!id || !title || !surface || !bottom) return null;
-  if (!isSoupType(x.soupType)) return null;
+
+  let tag: SubmissionTag | null = isSubmissionTag(x.tag) ? x.tag : null;
+  if (!tag) tag = tagFromLegacySoupType(x.soupType);
+  if (!tag) return null;
+
+  let difficulty: SubmissionDifficulty = 'medium';
+  const dRaw = typeof x.difficulty === 'string' ? x.difficulty.trim().toLowerCase() : '';
+  if (isSubmissionDifficulty(dRaw)) difficulty = dRaw as SubmissionDifficulty;
+
   const submittedAt = typeof x.submittedAt === 'number' && Number.isFinite(x.submittedAt) ? x.submittedAt : 0;
   const out: RiddleSubmission = {
     id,
     title,
     surface,
     bottom,
-    soupType: x.soupType,
+    tag,
+    difficulty,
     status: normalizeStatus(x.status),
     submittedAt,
   };
@@ -102,7 +126,8 @@ export type AddSubmissionInput = {
   title: string;
   surface: string;
   bottom: string;
-  soupType: SoupType;
+  tag: SubmissionTag;
+  difficulty: SubmissionDifficulty;
 };
 
 function writeLocalEntry(item: RiddleSubmission): void {
@@ -160,8 +185,11 @@ export async function addSubmission(
   if (!title || !surface || !bottom) {
     return { ok: false, error: '标题、汤面、汤底均不能为空' };
   }
-  if (!isSoupType(input.soupType)) {
-    return { ok: false, error: '请选择汤底浓度' };
+  if (!isSubmissionTag(input.tag)) {
+    return { ok: false, error: '请选择标签' };
+  }
+  if (!isSubmissionDifficulty(input.difficulty)) {
+    return { ok: false, error: '请选择难度' };
   }
   const base = apiUrl('/api/submissions');
   if (!canUseRemoteApi()) {
@@ -182,7 +210,8 @@ export async function addSubmission(
         title,
         surface,
         bottom,
-        soupType: input.soupType,
+        tag: input.tag,
+        difficulty: input.difficulty,
       }),
     });
     const data = (await res.json()) as {
@@ -193,9 +222,9 @@ export async function addSubmission(
       submission?: Record<string, unknown>;
     };
     if (!res.ok) {
-      const base = data.error || `提交失败（${res.status}）`;
+      const baseErr = data.error || `提交失败（${res.status}）`;
       const extra = data.details || data.hint;
-      const hint = extra ? `${base}：${extra}` : base;
+      const hint = extra ? `${baseErr}：${extra}` : baseErr;
       return { ok: false, error: hint };
     }
     const s = data.submission;
@@ -203,12 +232,17 @@ export async function addSubmission(
       return { ok: false, error: '响应格式异常' };
     }
     const st = s.status === 'approved' || s.status === 'rejected' || s.status === 'pending' ? s.status : 'pending';
+    const tag: SubmissionTag = isSubmissionTag(s.tag) ? s.tag : input.tag;
+    const difficulty: SubmissionDifficulty = isSubmissionDifficulty(s.difficulty)
+      ? (s.difficulty as string).trim().toLowerCase() as SubmissionDifficulty
+      : input.difficulty;
     const item: RiddleSubmission = {
       id: s.id,
       title: typeof s.title === 'string' ? s.title : title,
       surface: typeof s.surface === 'string' ? s.surface : surface,
       bottom: typeof s.bottom === 'string' ? s.bottom : bottom,
-      soupType: isSoupType(s.soupType) ? s.soupType : input.soupType,
+      tag,
+      difficulty,
       status: st,
       submittedAt:
         typeof s.submittedAt === 'number'
