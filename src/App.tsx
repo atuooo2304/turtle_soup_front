@@ -36,6 +36,7 @@ import {
   addSubmission,
   listSubmissions,
   submissionStatusLabel,
+  syncSubmissionsFromServer,
   type RiddleSubmission,
   type SoupType,
   type SubmissionStatus,
@@ -1367,9 +1368,26 @@ const HistoryView = ({
 }) => {
   const [items, setItems] = useState<RiddleSubmission[]>(() => listSubmissions());
   const [selectedItem, setSelectedItem] = useState<RiddleSubmission | null>(null);
+  const [syncing, setSyncing] = useState(false);
 
   useEffect(() => {
     setItems(listSubmissions());
+    let cancelled = false;
+    if (!canUseRemoteApi()) return undefined;
+    setSyncing(true);
+    void syncSubmissionsFromServer().finally(() => {
+      if (cancelled) return;
+      const next = listSubmissions();
+      setItems(next);
+      setSelectedItem((prev) => {
+        if (!prev) return null;
+        return next.find((r) => r.id === prev.id) ?? prev;
+      });
+      setSyncing(false);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return (
@@ -1380,6 +1398,12 @@ const HistoryView = ({
         </button>
         <h1 className="text-xl font-bold text-on-surface tracking-widest uppercase font-serif">投稿记录</h1>
       </header>
+
+      {syncing && (
+        <p className="text-xs text-on-surface-variant/80 tracking-wider pl-1" aria-live="polite">
+          正在同步审核状态…
+        </p>
+      )}
 
       {items.length === 0 ? (
         <div className="space-y-6 py-12 text-center border border-outline-variant/20 bg-surface-low/50 px-6">
@@ -1469,6 +1493,14 @@ const HistoryView = ({
                     <h4 className="text-[10px] uppercase tracking-widest text-primary/40">汤底 (Base)</h4>
                     <p className="font-serif text-base leading-relaxed text-on-surface whitespace-pre-wrap">{selectedItem.bottom}</p>
                   </div>
+                  {selectedItem.reviewerNote ? (
+                    <div className="space-y-2 border-t border-outline-variant/20 pt-6">
+                      <h4 className="text-[10px] uppercase tracking-widest text-on-surface-variant/60">审核备注</h4>
+                      <p className="font-serif text-sm leading-relaxed text-on-surface-variant whitespace-pre-wrap">
+                        {selectedItem.reviewerNote}
+                      </p>
+                    </div>
+                  ) : null}
                 </div>
 
                 <button

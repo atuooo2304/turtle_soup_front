@@ -54,6 +54,8 @@ H5 在 **微信小程序 WebView** 内会将 `document.title` 置空，减少微
 
 「贡献新汤」在生产环境通过 **同源 `/api/submissions`** 写入 Supabase 表 `riddle_submissions`；**汤谱**由构建内 [`src/data/riddles.csv`](src/data/riddles.csv) 与 **`GET /api/riddles-published`**（`status = approved`）合并展示。管理员审核通过后，用户刷新 H5 即可看到新谜题（小程序 WebView 同理）。
 
+**投稿记录与审核状态**：个人中心「投稿记录」进入时会请求 **`GET /api/submissions/me`**（需与投稿相同的 `Authorization: Bearer`），按 `submitter_openid` 从库中拉取该用户的投稿并与本机缓存合并（**服务端状态为准**），从而与你在 Supabase 或管理接口中改的 `approved` / `rejected` 一致。若某条历史投稿行的 **`submitter_openid` 为空**（迁移前数据），接口无法返回该行，用户端只能继续显示本机旧状态；可在 Supabase 中手工补全为 `supabase:<用户 uuid>` 或对应微信 openid。
+
 **上线前环境检查（与 Vercel 同项目）**
 
 1. `SUPABASE_URL`、`SUPABASE_SERVICE_ROLE_KEY`（**service_role**，勿用 anon）已配置。

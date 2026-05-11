@@ -15,6 +15,10 @@ export interface RiddleSubmission {
   soupType: SoupType;
   status: SubmissionStatus;
   submittedAt: number;
+  /** 审核备注（服务端同步后可能有） */
+  reviewerNote?: string | null;
+  /** 审核时间戳 ms（服务端同步后可能有） */
+  reviewedAt?: number;
 }
 
 const SOUP_TYPES: readonly SoupType[] = ['清汤', '红汤', '黑汤'];
@@ -42,7 +46,7 @@ function parseItem(x: unknown): RiddleSubmission | null {
   if (!id || !title || !surface || !bottom) return null;
   if (!isSoupType(x.soupType)) return null;
   const submittedAt = typeof x.submittedAt === 'number' && Number.isFinite(x.submittedAt) ? x.submittedAt : 0;
-  return {
+  const out: RiddleSubmission = {
     id,
     title,
     surface,
@@ -51,6 +55,15 @@ function parseItem(x: unknown): RiddleSubmission | null {
     status: normalizeStatus(x.status),
     submittedAt,
   };
+  if (typeof x.reviewerNote === 'string' && x.reviewerNote.trim()) {
+    out.reviewerNote = x.reviewerNote.trim();
+  } else if (x.reviewerNote === null) {
+    out.reviewerNote = null;
+  }
+  if (typeof x.reviewedAt === 'number' && Number.isFinite(x.reviewedAt) && x.reviewedAt > 0) {
+    out.reviewedAt = x.reviewedAt;
+  }
+  return out;
 }
 
 function readRaw(): RiddleSubmission[] {
@@ -96,6 +109,43 @@ function writeLocalEntry(item: RiddleSubmission): void {
   if (typeof localStorage === 'undefined') return;
   const next = [item, ...readRaw().filter((r) => r.id !== item.id)];
   localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+}
+
+function writeMergedSubmissions(merged: RiddleSubmission[]): void {
+  if (typeof localStorage === 'undefined') return;
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+}
+
+/**
+ * 从服务端拉取当前登录用户的投稿，与 localStorage 按 id 合并（服务端为准），失败不清空本地。
+ */
+export async function syncSubmissionsFromServer(): Promise<boolean> {
+  if (!canUseRemoteApi()) return false;
+  try {
+    const auth = await authHeadersAsync();
+    const res = await fetch(apiUrl('/api/submissions/me'), {
+      method: 'GET',
+      headers: { ...auth },
+    });
+    const data = (await res.json()) as { submissions?: unknown; error?: string };
+    if (!res.ok || !Array.isArray(data.submissions)) {
+      return false;
+    }
+    const serverItems: RiddleSubmission[] = [];
+    for (const row of data.submissions) {
+      const item = parseItem(row);
+      if (item) serverItems.push(item);
+    }
+    const local = readRaw();
+    const byId = new Map<string, RiddleSubmission>();
+    for (const item of local) byId.set(item.id, item);
+    for (const item of serverItems) byId.set(item.id, item);
+    const merged = [...byId.values()].sort((a, b) => b.submittedAt - a.submittedAt);
+    writeMergedSubmissions(merged);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
