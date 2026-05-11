@@ -914,146 +914,157 @@ const SettlementView = ({
         className={`${SHELL_INNER} relative`}
         style={{ perspective: 1400 }}
       >
-        <motion.div
-          animate={{ rotateY: reviewOpen ? 180 : 0 }}
-          transition={{ duration: 0.45, ease: 'easeInOut' }}
-          className="relative bg-surface border border-outline-variant/30 overflow-hidden flex flex-col max-h-[90vh]"
-          style={{ transformStyle: 'preserve-3d' }}
-        >
-          <div className="absolute inset-0 bg-gradient-radial from-primary/5 to-transparent pointer-events-none opacity-60" />
-
-          <div className="relative z-20 overflow-y-auto no-scrollbar p-6 pt-12 space-y-8" style={{ backfaceVisibility: 'hidden' }}>
-            <div className="absolute top-4 left-4 z-10">
-              <div className="border border-outline/40 bg-surface-high px-2 py-0.5">
-                <span className="text-[9px] tracking-[0.2em] text-on-surface-variant uppercase">
-                  {success ? '成功通关 SUCCESS' : '挑战结束 ENDED'}
-                </span>
-              </div>
-            </div>
-
-            <header className="text-center space-y-2 pt-4">
-              <div className="relative inline-block">
-                <h2 className={`font-serif text-5xl italic tracking-tight ${success ? 'shimmer-gold' : 'text-on-surface-variant'}`}>
-                  {success ? successGrade : failTitle}
-                </h2>
-                <p className="text-[10px] tracking-[0.3em] uppercase text-on-surface-variant/60 mt-1">
-                  {success ? 'MASTER DETECTIVE' : failSub}
-                </p>
-              </div>
-              <div className="w-12 h-px bg-gradient-to-r from-transparent via-outline/30 to-transparent mx-auto mt-4" />
-            </header>
-
-            {success && (
-              <section className="space-y-4">
-                <div className="flex items-center gap-3">
-                  <div className="h-px flex-1 bg-outline/20" />
-                  <h3 className="font-serif text-base italic text-secondary tracking-widest">汤底揭秘</h3>
-                  <div className="h-px flex-1 bg-outline/20" />
+        <AnimatePresence mode="wait" initial={false}>
+          {!reviewOpen ? (
+            <motion.div
+              key="settlement-default"
+              initial={{ rotateY: -90, opacity: 0 }}
+              animate={{ rotateY: 0, opacity: 1 }}
+              exit={{ rotateY: 90, opacity: 0 }}
+              transition={{ duration: 0.35, ease: 'easeInOut' }}
+              className="relative bg-surface border border-outline-variant/30 overflow-hidden flex flex-col max-h-[90vh]"
+              style={{ transformStyle: 'preserve-3d' }}
+            >
+              <div className="absolute inset-0 bg-gradient-radial from-primary/5 to-transparent pointer-events-none opacity-60" />
+              <div className="relative z-20 overflow-y-auto no-scrollbar p-6 pt-12 space-y-8">
+                <div className="absolute top-4 left-4 z-10">
+                  <div className="border border-outline/40 bg-surface-high px-2 py-0.5">
+                    <span className="text-[9px] tracking-[0.2em] text-on-surface-variant uppercase">
+                      {success ? '成功通关 SUCCESS' : '挑战结束 ENDED'}
+                    </span>
+                  </div>
                 </div>
-                <div className="bg-surface-high/40 border border-outline/10 p-5">
-                  <p className="text-on-surface leading-relaxed text-sm text-justify whitespace-pre-wrap">
-                    {bottomText.trim() || '（暂无汤底文案）'}
-                  </p>
-                </div>
-              </section>
-            )}
 
-            {!success && (
-              <section className="space-y-3">
+                <header className="text-center space-y-2 pt-4">
+                  <div className="relative inline-block">
+                    <h2 className={`font-serif text-5xl italic tracking-tight ${success ? 'shimmer-gold' : 'text-on-surface-variant'}`}>
+                      {success ? successGrade : failTitle}
+                    </h2>
+                    <p className="text-[10px] tracking-[0.3em] uppercase text-on-surface-variant/60 mt-1">
+                      {success ? 'MASTER DETECTIVE' : failSub}
+                    </p>
+                  </div>
+                  <div className="w-12 h-px bg-gradient-to-r from-transparent via-outline/30 to-transparent mx-auto mt-4" />
+                </header>
+
+                {success && (
+                  <section className="space-y-4">
+                    <div className="flex items-center gap-3">
+                      <div className="h-px flex-1 bg-outline/20" />
+                      <h3 className="font-serif text-base italic text-secondary tracking-widest">汤底揭秘</h3>
+                      <div className="h-px flex-1 bg-outline/20" />
+                    </div>
+                    <div className="bg-surface-high/40 border border-outline/10 p-5">
+                      <p className="text-on-surface leading-relaxed text-sm text-justify whitespace-pre-wrap">
+                        {bottomText.trim() || '（暂无汤底文案）'}
+                      </p>
+                    </div>
+                  </section>
+                )}
+
+                {!success && (
+                  <section className="space-y-3">
+                    <button
+                      type="button"
+                      onClick={() => setBottomOpen((o) => !o)}
+                      className="w-full flex items-center justify-between gap-2 py-3 px-4 border border-outline-variant/30 bg-surface-low text-left text-sm font-serif text-primary tracking-widest"
+                    >
+                      <span>{bottomOpen ? '收起汤底' : '展开汤底'}</span>
+                      {bottomOpen ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                    </button>
+                    {bottomOpen && (
+                      <div className="bg-surface-high/40 border border-outline/10 p-5">
+                        <p className="text-on-surface leading-relaxed text-sm text-justify whitespace-pre-wrap">
+                          {bottomText.trim() || '（暂无汤底文案）'}
+                        </p>
+                      </div>
+                    )}
+                  </section>
+                )}
+
+                <section className="grid grid-cols-3 gap-2">
+                  <div className="bg-surface-low py-3 px-1 border-l border-primary/20 flex flex-col items-center justify-center">
+                    <span className="text-[8px] uppercase tracking-widest text-on-surface-variant opacity-60">用时</span>
+                    <span className="font-serif text-xl text-on-surface tracking-tighter">{formatElapsed(elapsedMs)}</span>
+                  </div>
+                  <div className="bg-surface-low py-3 px-1 border-l border-primary/20 flex flex-col items-center justify-center">
+                    <span className="text-[8px] uppercase tracking-widest text-on-surface-variant opacity-60">提问</span>
+                    <span className="font-serif text-xl text-on-surface tracking-tighter">{count}/{maxQuestionLimit}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setReviewOpen(true)}
+                    className="bg-surface-low py-3 px-1 border-l border-secondary/20 flex flex-col items-center justify-center hover:bg-surface-high transition-colors"
+                  >
+                    <span className="text-[8px] uppercase tracking-widest text-on-surface-variant opacity-60">对局回顾</span>
+                    <span className="font-serif text-xl text-secondary tracking-tighter">查看</span>
+                  </button>
+                </section>
+
+                <footer className="flex flex-col gap-3 pt-4">
+                  {shareFeedback && (
+                    <p className="text-center text-sm text-primary font-serif tracking-wide">{shareFeedback}</p>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => void handleShareLink()}
+                    className="bg-primary text-surface font-bold py-4 tracking-[0.2em] uppercase text-xs flex items-center justify-center gap-2 active:scale-95 transition-all"
+                  >
+                    <Share2 size={18} />
+                    分享我的旅程
+                  </button>
+                  <button
+                    onClick={onHome}
+                    className="bg-transparent border border-outline/20 text-secondary py-4 tracking-[0.2em] uppercase text-xs flex items-center justify-center gap-2 active:bg-white/5 transition-all"
+                  >
+                    <HomeNavIcon size={18} />
+                    返回首页
+                  </button>
+                </footer>
+              </div>
+            </motion.div>
+          ) : (
+            <motion.div
+              key="settlement-review"
+              initial={{ rotateY: 90, opacity: 0 }}
+              animate={{ rotateY: 0, opacity: 1 }}
+              exit={{ rotateY: -90, opacity: 0 }}
+              transition={{ duration: 0.35, ease: 'easeInOut' }}
+              className="relative bg-surface border border-outline-variant/30 overflow-hidden flex flex-col max-h-[90vh] p-6 pt-12"
+              style={{ transformStyle: 'preserve-3d' }}
+            >
+              <header className="flex items-center gap-3 pb-4 border-b border-outline/20">
                 <button
                   type="button"
-                  onClick={() => setBottomOpen((o) => !o)}
-                  className="w-full flex items-center justify-between gap-2 py-3 px-4 border border-outline-variant/30 bg-surface-low text-left text-sm font-serif text-primary tracking-widest"
+                  onClick={() => setReviewOpen(false)}
+                  className="p-2 text-primary hover:bg-primary/10 transition-all"
+                  aria-label="返回结算"
                 >
-                  <span>{bottomOpen ? '收起汤底' : '展开汤底'}</span>
-                  {bottomOpen ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                  <ArrowLeft size={20} />
                 </button>
-                {bottomOpen && (
-                  <div className="bg-surface-high/40 border border-outline/10 p-5">
-                    <p className="text-on-surface leading-relaxed text-sm text-justify whitespace-pre-wrap">
-                      {bottomText.trim() || '（暂无汤底文案）'}
-                    </p>
-                  </div>
+                <h3 className="font-serif text-lg italic tracking-wider text-on-surface">对局回顾</h3>
+              </header>
+
+              <div className="mt-4 flex-1 overflow-y-auto no-scrollbar space-y-3">
+                {messagesSnapshot.length === 0 ? (
+                  <div className="h-full flex items-center justify-center text-sm text-on-surface-variant">本局暂无可回顾对话</div>
+                ) : (
+                  messagesSnapshot.map((m, idx) => (
+                    <div
+                      key={`${m.id}-${idx}`}
+                      className={`p-3 border ${m.role === 'user' ? 'bg-surface-low border-outline-variant/20' : 'bg-surface-high border-primary/20'}`}
+                    >
+                      <p className="text-[10px] tracking-widest uppercase text-on-surface-variant/70 mb-1">
+                        {m.role === 'user' ? '你' : '汤主'}
+                      </p>
+                      <p className="text-sm font-serif leading-relaxed whitespace-pre-wrap text-on-surface">{m.text}</p>
+                    </div>
+                  ))
                 )}
-              </section>
-            )}
-
-            <section className="grid grid-cols-3 gap-2">
-              <div className="bg-surface-low py-3 px-1 border-l border-primary/20 flex flex-col items-center justify-center">
-                <span className="text-[8px] uppercase tracking-widest text-on-surface-variant opacity-60">用时</span>
-                <span className="font-serif text-xl text-on-surface tracking-tighter">{formatElapsed(elapsedMs)}</span>
               </div>
-              <div className="bg-surface-low py-3 px-1 border-l border-primary/20 flex flex-col items-center justify-center">
-                <span className="text-[8px] uppercase tracking-widest text-on-surface-variant opacity-60">提问</span>
-                <span className="font-serif text-xl text-on-surface tracking-tighter">{count}/{maxQuestionLimit}</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setReviewOpen(true)}
-                className="bg-surface-low py-3 px-1 border-l border-secondary/20 flex flex-col items-center justify-center hover:bg-surface-high transition-colors"
-              >
-                <span className="text-[8px] uppercase tracking-widest text-on-surface-variant opacity-60">对局回顾</span>
-                <span className="font-serif text-xl text-secondary tracking-tighter">查看</span>
-              </button>
-            </section>
-
-            <footer className="flex flex-col gap-3 pt-4">
-              {shareFeedback && (
-                <p className="text-center text-sm text-primary font-serif tracking-wide">{shareFeedback}</p>
-              )}
-              <button
-                type="button"
-                onClick={() => void handleShareLink()}
-                className="bg-primary text-surface font-bold py-4 tracking-[0.2em] uppercase text-xs flex items-center justify-center gap-2 active:scale-95 transition-all"
-              >
-                <Share2 size={18} />
-                分享我的旅程
-              </button>
-              <button
-                onClick={onHome}
-                className="bg-transparent border border-outline/20 text-secondary py-4 tracking-[0.2em] uppercase text-xs flex items-center justify-center gap-2 active:bg-white/5 transition-all"
-              >
-                <HomeNavIcon size={18} />
-                返回首页
-              </button>
-            </footer>
-          </div>
-
-          <div
-            className="absolute inset-0 z-30 bg-surface p-6 pt-12 flex flex-col"
-            style={{ backfaceVisibility: 'hidden', transform: 'rotateY(180deg)' }}
-          >
-            <header className="flex items-center gap-3 pb-4 border-b border-outline/20">
-              <button
-                type="button"
-                onClick={() => setReviewOpen(false)}
-                className="p-2 text-primary hover:bg-primary/10 transition-all"
-                aria-label="返回结算"
-              >
-                <ArrowLeft size={20} />
-              </button>
-              <h3 className="font-serif text-lg italic tracking-wider text-on-surface">对局回顾</h3>
-            </header>
-
-            <div className="mt-4 flex-1 overflow-y-auto no-scrollbar space-y-3">
-              {messagesSnapshot.length === 0 ? (
-                <div className="h-full flex items-center justify-center text-sm text-on-surface-variant">本局暂无可回顾对话</div>
-              ) : (
-                messagesSnapshot.map((m, idx) => (
-                  <div
-                    key={`${m.id}-${idx}`}
-                    className={`p-3 border ${m.role === 'user' ? 'bg-surface-low border-outline-variant/20' : 'bg-surface-high border-primary/20'}`}
-                  >
-                    <p className="text-[10px] tracking-widest uppercase text-on-surface-variant/70 mb-1">
-                      {m.role === 'user' ? '你' : '汤主'}
-                    </p>
-                    <p className="text-sm font-serif leading-relaxed whitespace-pre-wrap text-on-surface">{m.text}</p>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </motion.div>
     </div>
   );
