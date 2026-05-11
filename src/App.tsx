@@ -102,6 +102,7 @@ interface GameFinishPayload {
   finishReason: FinishReason;
   riddleId: string;
   maxQuestionLimit: number;
+  messagesSnapshot: Message[];
 }
 
 function failureGradeTitle(finishReason: 'give_up' | 'out_of_turns', count: number): string {
@@ -585,6 +586,7 @@ const GameRoomView = ({
     count: number,
     elapsedMs: number,
     finishReason: FinishReason,
+    messagesSnapshot: Message[],
   ): GameFinishPayload => ({
     success,
     count,
@@ -593,13 +595,14 @@ const GameRoomView = ({
     finishReason,
     riddleId: riddle.id,
     maxQuestionLimit: maxAttempts,
+    messagesSnapshot,
   });
 
   const handleGiveUp = () => {
     if (loading) return;
     if (!window.confirm('确定放弃本局？将立即结算，本局计为失败。')) return;
     const elapsedMs = Date.now() - gameStartedAtRef.current;
-    onFinish(buildFinish(false, attempts, elapsedMs, 'give_up'));
+    onFinish(buildFinish(false, attempts, elapsedMs, 'give_up', messages));
   };
 
   const handleSend = async () => {
@@ -631,17 +634,18 @@ const GameRoomView = ({
 
     const hostMsg: Message = { id: (Date.now() + 1).toString(), role: 'host', text: response };
     setMessages((prev) => [...prev, hostMsg]);
+    const messagesSnapshot = [...messages, userMsg, hostMsg];
 
     const usedAttempts = attempts + 1;
     const elapsedMs = Date.now() - gameStartedAtRef.current;
     const hostOffline = response.includes('汤主走神了');
 
     if (!hostOffline && hostIndicatesSuccess(response)) {
-      setTimeout(() => onFinish(buildFinish(true, usedAttempts, elapsedMs, 'win')), 1500);
+      setTimeout(() => onFinish(buildFinish(true, usedAttempts, elapsedMs, 'win', messagesSnapshot)), 1500);
     } else if (!hostOffline && hostIndicatesGiveUp(response)) {
-      setTimeout(() => onFinish(buildFinish(false, usedAttempts, elapsedMs, 'give_up')), 1500);
+      setTimeout(() => onFinish(buildFinish(false, usedAttempts, elapsedMs, 'give_up', messagesSnapshot)), 1500);
     } else if (usedAttempts >= maxAttempts) {
-      setTimeout(() => onFinish(buildFinish(false, usedAttempts, elapsedMs, 'out_of_turns')), 1500);
+      setTimeout(() => onFinish(buildFinish(false, usedAttempts, elapsedMs, 'out_of_turns', messagesSnapshot)), 1500);
     }
   };
 
@@ -856,6 +860,7 @@ const SettlementView = ({
   elapsedMs,
   bottomText,
   finishReason,
+  messagesSnapshot,
   onHome,
 }: {
   success: boolean;
@@ -864,9 +869,11 @@ const SettlementView = ({
   elapsedMs: number;
   bottomText: string;
   finishReason: FinishReason;
+  messagesSnapshot: Message[];
   onHome: () => void;
 }) => {
   const [bottomOpen, setBottomOpen] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
   const successGrade = count <= 5 ? '神探' : count <= 12 ? '老警探' : '有点悬';
   const failReason: 'give_up' | 'out_of_turns' =
     finishReason === 'give_up' ? 'give_up' : 'out_of_turns';
@@ -901,104 +908,152 @@ const SettlementView = ({
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-surface/90 backdrop-blur-md">
-      <motion.div 
+      <motion.div
         initial={{ scale: 0.9, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
-        className={`${SHELL_INNER} bg-surface border border-outline-variant/30 relative overflow-hidden flex flex-col max-h-[90vh]`}
+        className={`${SHELL_INNER} relative`}
+        style={{ perspective: 1400 }}
       >
-        <div className="absolute inset-0 bg-gradient-radial from-primary/5 to-transparent pointer-events-none opacity-60"></div>
-        <div className="absolute top-4 left-4 z-10">
-          <div className="border border-outline/40 bg-surface-high px-2 py-0.5">
-            <span className="text-[9px] tracking-[0.2em] text-on-surface-variant uppercase">
-              {success ? '成功通关 SUCCESS' : '挑战结束 ENDED'}
-            </span>
-          </div>
-        </div>
+        <motion.div
+          animate={{ rotateY: reviewOpen ? 180 : 0 }}
+          transition={{ duration: 0.45, ease: 'easeInOut' }}
+          className="relative bg-surface border border-outline-variant/30 overflow-hidden flex flex-col max-h-[90vh]"
+          style={{ transformStyle: 'preserve-3d' }}
+        >
+          <div className="absolute inset-0 bg-gradient-radial from-primary/5 to-transparent pointer-events-none opacity-60" />
 
-        <div className="overflow-y-auto no-scrollbar p-6 pt-12 space-y-8 relative z-20">
-          <header className="text-center space-y-2 pt-4">
-            <div className="relative inline-block">
-              <h2 className={`font-serif text-5xl italic tracking-tight ${success ? 'shimmer-gold' : 'text-on-surface-variant'}`}>
-                {success ? successGrade : failTitle}
-              </h2>
-              <p className="text-[10px] tracking-[0.3em] uppercase text-on-surface-variant/60 mt-1">
-                {success ? 'MASTER DETECTIVE' : failSub}
-              </p>
-            </div>
-            <div className="w-12 h-px bg-gradient-to-r from-transparent via-outline/30 to-transparent mx-auto mt-4"></div>
-          </header>
-
-          {success && (
-            <section className="space-y-4">
-              <div className="flex items-center gap-3">
-                <div className="h-px flex-1 bg-outline/20"></div>
-                <h3 className="font-serif text-base italic text-secondary tracking-widest">汤底揭秘</h3>
-                <div className="h-px flex-1 bg-outline/20"></div>
+          <div className="relative z-20 overflow-y-auto no-scrollbar p-6 pt-12 space-y-8" style={{ backfaceVisibility: 'hidden' }}>
+            <div className="absolute top-4 left-4 z-10">
+              <div className="border border-outline/40 bg-surface-high px-2 py-0.5">
+                <span className="text-[9px] tracking-[0.2em] text-on-surface-variant uppercase">
+                  {success ? '成功通关 SUCCESS' : '挑战结束 ENDED'}
+                </span>
               </div>
-              <div className="bg-surface-high/40 border border-outline/10 p-5">
-                <p className="text-on-surface leading-relaxed text-sm text-justify whitespace-pre-wrap">
-                  {bottomText.trim() || '（暂无汤底文案）'}
+            </div>
+
+            <header className="text-center space-y-2 pt-4">
+              <div className="relative inline-block">
+                <h2 className={`font-serif text-5xl italic tracking-tight ${success ? 'shimmer-gold' : 'text-on-surface-variant'}`}>
+                  {success ? successGrade : failTitle}
+                </h2>
+                <p className="text-[10px] tracking-[0.3em] uppercase text-on-surface-variant/60 mt-1">
+                  {success ? 'MASTER DETECTIVE' : failSub}
                 </p>
               </div>
-            </section>
-          )}
+              <div className="w-12 h-px bg-gradient-to-r from-transparent via-outline/30 to-transparent mx-auto mt-4" />
+            </header>
 
-          {!success && (
-            <section className="space-y-3">
-              <button
-                type="button"
-                onClick={() => setBottomOpen((o) => !o)}
-                className="w-full flex items-center justify-between gap-2 py-3 px-4 border border-outline-variant/30 bg-surface-low text-left text-sm font-serif text-primary tracking-widest"
-              >
-                <span>{bottomOpen ? '收起汤底' : '展开汤底'}</span>
-                {bottomOpen ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
-              </button>
-              {bottomOpen && (
+            {success && (
+              <section className="space-y-4">
+                <div className="flex items-center gap-3">
+                  <div className="h-px flex-1 bg-outline/20" />
+                  <h3 className="font-serif text-base italic text-secondary tracking-widest">汤底揭秘</h3>
+                  <div className="h-px flex-1 bg-outline/20" />
+                </div>
                 <div className="bg-surface-high/40 border border-outline/10 p-5">
                   <p className="text-on-surface leading-relaxed text-sm text-justify whitespace-pre-wrap">
                     {bottomText.trim() || '（暂无汤底文案）'}
                   </p>
                 </div>
-              )}
-            </section>
-          )}
-
-          <section className="grid grid-cols-3 gap-2">
-            <div className="bg-surface-low py-3 px-1 border-l border-primary/20 flex flex-col items-center justify-center">
-              <span className="text-[8px] uppercase tracking-widest text-on-surface-variant opacity-60">用时</span>
-              <span className="font-serif text-xl text-on-surface tracking-tighter">{formatElapsed(elapsedMs)}</span>
-            </div>
-            <div className="bg-surface-low py-3 px-1 border-l border-primary/20 flex flex-col items-center justify-center">
-              <span className="text-[8px] uppercase tracking-widest text-on-surface-variant opacity-60">提问</span>
-              <span className="font-serif text-xl text-on-surface tracking-tighter">{count}/{maxQuestionLimit}</span>
-            </div>
-            <div className="bg-surface-low py-3 px-1 border-l border-secondary/20 flex flex-col items-center justify-center">
-              <span className="text-[8px] uppercase tracking-widest text-on-surface-variant opacity-60">提示</span>
-              <span className="font-serif text-xl text-secondary tracking-tighter">0</span>
-            </div>
-          </section>
-
-          <footer className="flex flex-col gap-3 pt-4">
-            {shareFeedback && (
-              <p className="text-center text-sm text-primary font-serif tracking-wide">{shareFeedback}</p>
+              </section>
             )}
-            <button
-              type="button"
-              onClick={() => void handleShareLink()}
-              className="bg-primary text-surface font-bold py-4 tracking-[0.2em] uppercase text-xs flex items-center justify-center gap-2 active:scale-95 transition-all"
-            >
-              <Share2 size={18} />
-              分享我的旅程
-            </button>
-            <button 
-              onClick={onHome}
-              className="bg-transparent border border-outline/20 text-secondary py-4 tracking-[0.2em] uppercase text-xs flex items-center justify-center gap-2 active:bg-white/5 transition-all"
-            >
-              <HomeNavIcon size={18} />
-              返回首页
-            </button>
-          </footer>
-        </div>
+
+            {!success && (
+              <section className="space-y-3">
+                <button
+                  type="button"
+                  onClick={() => setBottomOpen((o) => !o)}
+                  className="w-full flex items-center justify-between gap-2 py-3 px-4 border border-outline-variant/30 bg-surface-low text-left text-sm font-serif text-primary tracking-widest"
+                >
+                  <span>{bottomOpen ? '收起汤底' : '展开汤底'}</span>
+                  {bottomOpen ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                </button>
+                {bottomOpen && (
+                  <div className="bg-surface-high/40 border border-outline/10 p-5">
+                    <p className="text-on-surface leading-relaxed text-sm text-justify whitespace-pre-wrap">
+                      {bottomText.trim() || '（暂无汤底文案）'}
+                    </p>
+                  </div>
+                )}
+              </section>
+            )}
+
+            <section className="grid grid-cols-3 gap-2">
+              <div className="bg-surface-low py-3 px-1 border-l border-primary/20 flex flex-col items-center justify-center">
+                <span className="text-[8px] uppercase tracking-widest text-on-surface-variant opacity-60">用时</span>
+                <span className="font-serif text-xl text-on-surface tracking-tighter">{formatElapsed(elapsedMs)}</span>
+              </div>
+              <div className="bg-surface-low py-3 px-1 border-l border-primary/20 flex flex-col items-center justify-center">
+                <span className="text-[8px] uppercase tracking-widest text-on-surface-variant opacity-60">提问</span>
+                <span className="font-serif text-xl text-on-surface tracking-tighter">{count}/{maxQuestionLimit}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setReviewOpen(true)}
+                className="bg-surface-low py-3 px-1 border-l border-secondary/20 flex flex-col items-center justify-center hover:bg-surface-high transition-colors"
+              >
+                <span className="text-[8px] uppercase tracking-widest text-on-surface-variant opacity-60">对局回顾</span>
+                <span className="font-serif text-xl text-secondary tracking-tighter">查看</span>
+              </button>
+            </section>
+
+            <footer className="flex flex-col gap-3 pt-4">
+              {shareFeedback && (
+                <p className="text-center text-sm text-primary font-serif tracking-wide">{shareFeedback}</p>
+              )}
+              <button
+                type="button"
+                onClick={() => void handleShareLink()}
+                className="bg-primary text-surface font-bold py-4 tracking-[0.2em] uppercase text-xs flex items-center justify-center gap-2 active:scale-95 transition-all"
+              >
+                <Share2 size={18} />
+                分享我的旅程
+              </button>
+              <button
+                onClick={onHome}
+                className="bg-transparent border border-outline/20 text-secondary py-4 tracking-[0.2em] uppercase text-xs flex items-center justify-center gap-2 active:bg-white/5 transition-all"
+              >
+                <HomeNavIcon size={18} />
+                返回首页
+              </button>
+            </footer>
+          </div>
+
+          <div
+            className="absolute inset-0 z-30 bg-surface p-6 pt-12 flex flex-col"
+            style={{ backfaceVisibility: 'hidden', transform: 'rotateY(180deg)' }}
+          >
+            <header className="flex items-center gap-3 pb-4 border-b border-outline/20">
+              <button
+                type="button"
+                onClick={() => setReviewOpen(false)}
+                className="p-2 text-primary hover:bg-primary/10 transition-all"
+                aria-label="返回结算"
+              >
+                <ArrowLeft size={20} />
+              </button>
+              <h3 className="font-serif text-lg italic tracking-wider text-on-surface">对局回顾</h3>
+            </header>
+
+            <div className="mt-4 flex-1 overflow-y-auto no-scrollbar space-y-3">
+              {messagesSnapshot.length === 0 ? (
+                <div className="h-full flex items-center justify-center text-sm text-on-surface-variant">本局暂无可回顾对话</div>
+              ) : (
+                messagesSnapshot.map((m, idx) => (
+                  <div
+                    key={`${m.id}-${idx}`}
+                    className={`p-3 border ${m.role === 'user' ? 'bg-surface-low border-outline-variant/20' : 'bg-surface-high border-primary/20'}`}
+                  >
+                    <p className="text-[10px] tracking-widest uppercase text-on-surface-variant/70 mb-1">
+                      {m.role === 'user' ? '你' : '汤主'}
+                    </p>
+                    <p className="text-sm font-serif leading-relaxed whitespace-pre-wrap text-on-surface">{m.text}</p>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </motion.div>
       </motion.div>
     </div>
   );
@@ -1594,6 +1649,7 @@ export default function App() {
     bottomText: string;
     finishReason: FinishReason;
     riddleId: string;
+    messagesSnapshot: Message[];
   } | null>(null);
 
   const [loginModalOpen, setLoginModalOpen] = useState(false);
@@ -1704,6 +1760,7 @@ export default function App() {
       bottomText: payload.bottomText,
       finishReason: payload.finishReason,
       riddleId: payload.riddleId,
+      messagesSnapshot: payload.messagesSnapshot,
     });
   };
 
@@ -1788,6 +1845,7 @@ export default function App() {
             elapsedMs={settlement.elapsedMs}
             bottomText={settlement.bottomText}
             finishReason={settlement.finishReason}
+            messagesSnapshot={settlement.messagesSnapshot}
             onHome={handleHome} 
           />
         )}
