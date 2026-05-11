@@ -699,7 +699,7 @@ const GameRoomView = ({
                 </div>
               </div>
               <div className="bg-surface-highest h-1 w-24 mb-3 shrink-0"></div>
-              <div className="h-[min(38vh,260px)] min-h-0 overflow-y-auto overscroll-y-contain touch-pan-y pr-1 -mr-1">
+              <div className="max-h-[min(19vh,130px)] min-h-0 overflow-y-auto overscroll-y-contain touch-pan-y pr-1 -mr-1">
                 <p className="font-serif text-base text-on-surface leading-relaxed whitespace-pre-wrap">{riddle.surface}</p>
               </div>
               <div className="mt-5 pt-3 border-t border-outline-variant/20 shrink-0">
