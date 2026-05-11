@@ -12,7 +12,6 @@ import {
   ChevronRight,
   ChevronDown,
   ChevronUp,
-  TrendingUp,
   RefreshCw,
   FileText,
   X,
@@ -28,7 +27,14 @@ import {
   type Riddle,
 } from './data/riddles';
 import { askHost, type CozeConversationState } from './lib/cozeHost';
-import { recordGameEnd, subscribeProgress, getProgress, type ProgressMap } from './lib/playerProgress';
+import {
+  recordGameEnd,
+  subscribeProgress,
+  getProgress,
+  type ProgressMap,
+  type RiddleProgress,
+} from './lib/playerProgress';
+import { getGameStats, recordClearRun, subscribeGameStats } from './lib/gameStats';
 import { isSpeechToTextSupported, startSpeechToText, stopSpeechToText } from './lib/speechToText';
 import { isWeChatMiniProgramWebView } from './lib/wechatEnv';
 import { apiUrl, canUseRemoteApi } from './lib/apiBase';
@@ -1075,12 +1081,20 @@ const ProfileView = ({
   userEmail,
   onLogout,
   onRequestLogin,
+  playedCount,
+  poolTotal,
+  avgClearTimeMs,
+  avgClearRounds,
 }: {
   onNavigate: (v: View) => void | Promise<void>;
   userEmail: string | null;
   onLogout: () => void | Promise<void>;
   /** 未登录时点击访客卡片打开 Magic Link */
   onRequestLogin: () => void | Promise<void>;
+  playedCount: number;
+  poolTotal: number;
+  avgClearTimeMs: number | null;
+  avgClearRounds: number | null;
 }) => {
   return (
     <div className="p-6 space-y-12">
@@ -1162,16 +1176,30 @@ const ProfileView = ({
 
       <section className="space-y-6">
         <h3 className="text-[11px] uppercase tracking-[0.2em] opacity-50 ml-2">游戏数据</h3>
-        <div className="space-y-1">
-          <button 
-            type="button"
-            disabled
-            aria-disabled
-            className="w-full bg-surface-low p-5 flex items-center justify-between opacity-40 cursor-not-allowed"
-          >
-            <span className="font-serif text-lg italic">游戏统计</span>
-            <TrendingUp size={18} className="opacity-30" />
-          </button>
+        <div className="bg-surface-low p-5 space-y-5">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="bg-surface-highest/30 border border-outline-variant/20 py-4 px-3 flex flex-col items-center justify-center gap-1 text-center">
+              <span className="text-[8px] uppercase tracking-widest text-on-surface-variant opacity-70">平均通关时长</span>
+              <span className="font-serif text-xl text-on-surface tracking-tight">
+                {avgClearTimeMs != null ? formatElapsed(avgClearTimeMs) : '暂无'}
+              </span>
+            </div>
+            <div className="bg-surface-highest/30 border border-outline-variant/20 py-4 px-3 flex flex-col items-center justify-center gap-1 text-center">
+              <span className="text-[8px] uppercase tracking-widest text-on-surface-variant opacity-70">平均通关轮次</span>
+              <span className="font-serif text-xl text-on-surface tracking-tight">
+                {avgClearRounds != null ? avgClearRounds.toFixed(1) : '暂无'}
+              </span>
+            </div>
+            <div className="bg-surface-highest/30 border border-outline-variant/20 py-4 px-3 flex flex-col items-center justify-center gap-1 text-center">
+              <span className="text-[8px] uppercase tracking-widest text-on-surface-variant opacity-70">玩过 / 题库</span>
+              <span className="font-serif text-xl text-on-surface tracking-tight">
+                {playedCount}/{poolTotal}
+              </span>
+            </div>
+          </div>
+          <p className="text-[10px] text-on-surface-variant/70 leading-relaxed text-center">
+            仅统计本设备本地记录；平均通关数据仅计入成功通关的对局。
+          </p>
         </div>
       </section>
     </div>
@@ -1622,11 +1650,25 @@ export default function App() {
   const [currentRiddle, setCurrentRiddle] = useState<Riddle | null>(null);
   const [progressEpoch, setProgressEpoch] = useState(0);
   const progressMap = useMemo(() => getProgress(), [progressEpoch]);
+  const [statsEpoch, setStatsEpoch] = useState(0);
   const [publishedExtra, setPublishedExtra] = useState<Riddle[]>([]);
 
   const riddlePool = useMemo(() => mergeRiddlePools(riddles, publishedExtra), [publishedExtra]);
 
+  const profileGameStats = useMemo(() => {
+    const playedCount = (Object.values(progressMap) as RiddleProgress[]).filter((p) => p.played).length;
+    const { clearCount, sumElapsedMs, sumAttempts } = getGameStats();
+    return {
+      playedCount,
+      poolTotal: riddlePool.length,
+      avgClearTimeMs: clearCount > 0 ? Math.round(sumElapsedMs / clearCount) : null,
+      avgClearRounds: clearCount > 0 ? sumAttempts / clearCount : null,
+    };
+  }, [progressMap, riddlePool.length, statsEpoch]);
+
   useEffect(() => subscribeProgress(() => setProgressEpoch((n) => n + 1)), []);
+
+  useEffect(() => subscribeGameStats(() => setStatsEpoch((n) => n + 1)), []);
 
   useEffect(() => {
     if (!canUseRemoteApi()) {
@@ -1763,6 +1805,10 @@ export default function App() {
 
   const handleFinishGame = (payload: GameFinishPayload) => {
     recordGameEnd({ riddleId: payload.riddleId, cleared: payload.success });
+    if (payload.success) {
+      recordClearRun({ elapsedMs: payload.elapsedMs, attempts: payload.count });
+      setStatsEpoch((n) => n + 1);
+    }
     setSettlement({
       success: payload.success,
       count: payload.count,
@@ -1831,6 +1877,10 @@ export default function App() {
                   userEmail={authEmail}
                   onLogout={handleLogout}
                   onRequestLogin={handleProfileLoginPrompt}
+                  playedCount={profileGameStats.playedCount}
+                  poolTotal={profileGameStats.poolTotal}
+                  avgClearTimeMs={profileGameStats.avgClearTimeMs}
+                  avgClearRounds={profileGameStats.avgClearRounds}
                 />
               )}
               {view === 'developing' && <DevelopingView onBack={() => setView(lastView)} showBack={false} />}
